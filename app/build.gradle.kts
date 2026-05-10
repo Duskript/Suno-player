@@ -384,6 +384,7 @@ dependencies {
     implementation(project(":betterlyrics"))
     implementation(project(":shazamkit"))
     implementation(project(":paxsenix"))
+    implementation(project(":suno"))
 
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.cio)
