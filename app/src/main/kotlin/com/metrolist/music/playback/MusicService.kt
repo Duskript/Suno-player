@@ -264,6 +264,9 @@ class MusicService :
     @Inject
     lateinit var listenTogetherManager: com.metrolist.music.listentogether.ListenTogetherManager
 
+    @Inject
+    lateinit var sunoAudioCache: com.metrolist.music.utils.SunoAudioCache
+
     private lateinit var audioManager: AudioManager
     private var audioFocusRequest: AudioFocusRequest? = null
     private var lastAudioFocusState = AudioManager.AUDIOFOCUS_NONE
@@ -3201,6 +3204,17 @@ class MusicService :
     private fun createDataSourceFactory(): DataSource.Factory {
         return ResolvingDataSource.Factory(createCacheDataSource()) { dataSpec ->
             val mediaId = dataSpec.key ?: error("No media id")
+
+            // --- Suno local track interception ---
+            if (sunoAudioCache.isSunoTrack(mediaId)) {
+                val localUri = sunoAudioCache.resolvePlaybackUri(mediaId)
+                if (localUri != null) {
+                    Timber.tag(TAG).d("Playing local Suno track: $mediaId -> $localUri")
+                    return@Factory dataSpec.withUri(localUri.toUri())
+                }
+                Timber.tag(TAG).w("Suno track $mediaId not found in audio cache, falling through")
+            }
+            // --- End Suno interception ---
 
             // Check if we need to bypass cache for quality change
             val shouldBypassCache = bypassCacheForQualityChange.contains(mediaId)

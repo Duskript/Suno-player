@@ -142,6 +142,9 @@ fun LibrarySongsScreen(
     var isUploading by remember { mutableStateOf(false) }
     var uploadJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
+    // Suno import state
+    var showSunoImport by remember { mutableStateOf(false) }
+
     val filePickerLauncher =
         rememberLauncherForActivityResult(
             contract = ActivityResultContracts.OpenMultipleDocuments(),
@@ -444,6 +447,16 @@ fun LibrarySongsScreen(
                             contentDescription = stringResource(R.string.search),
                         )
                     }
+
+                    IconButton(
+                        onClick = { showSunoImport = true },
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.add),
+                            contentDescription = "Import from Suno",
+                        )
+                    }
                 }
             }
 
@@ -533,5 +546,12 @@ fun LibrarySongsScreen(
                 }
             },
         )
+
+        if (showSunoImport) {
+            com.metrolist.music.ui.menu.SunoImportDialog(
+                isVisible = showSunoImport,
+                onDismiss = { showSunoImport = false },
+            )
+        }
     }
 }
