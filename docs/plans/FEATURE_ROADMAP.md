@@ -1,10 +1,10 @@
 # Suno Local Player — Feature Roadmap
 
 This document is a **plan only** for the batches that remain. **Batch 1
-(playback polish) and Batch 2 (sync visibility & reliability) are implemented**
-— see the verification notes in their sections below. Each remaining batch is
-small enough to review, verify, commit, and push on its own. The current
-shipped surface is described in the project `README.md`.
+(playback polish), Batch 2 (sync visibility & reliability), and Batch 3 (search
+/ filter) are implemented** — see the verification notes in their sections
+below. Each remaining batch is small enough to review, verify, commit, and push
+on its own. The current shipped surface is described in the project `README.md`.
 
 > ⚠️ **Commit/push checkpoint language is for the planner/human maintainer.**
 > Executors working from these batches must **not** commit or push themselves;
@@ -81,13 +81,28 @@ bumped to `0.1.2-sync-status` (versionCode 3).
 
 **Goal:** find tracks and playlists without scrolling.
 
-- [ ] Search field on the library page filtering playlists by title/creator.
-- [ ] In-playlist track search (title / creator / lyrics text).
-- [ ] Filter chips: All / Downloaded only / Custom mixes.
-- [ ] Keep list item rendering and detail dialogs unchanged.
+- [x] Search field on the library page filtering playlists by title/creator.
+- [x] In-playlist track search (title / creator / lyrics / style / description prompt).
+- [x] Filter chips: All / Downloaded only / Custom mixes.
+- [x] Keep list item rendering and detail dialogs unchanged.
+
+**Implemented (2026-07-31).** The Library page now has a search field matching
+playlist title/creator plus All / Downloaded only / Custom mixes `FilterChip`s;
+"Downloaded only" keeps playlists with `downloadedTrackCount > 0` (partial
+libraries stay visible, nothing-downloaded playlists are hidden — documented in
+`LibraryFilters.kt`). Inside a playlist, a track search field filters rows by
+title, creator, lyrics, stylePrompt, and descriptionPrompt. Matching is
+case-insensitive, trimmed, and null-safe. Filtering is local UI state in
+`LibraryScreen` only — it never mutates `LibraryStore`, so custom-mix
+move/remove still operate on original track ids, list item rendering / detail
+dialogs / add-playlist wizard / playback controls / sync summary cards /
+Settings behavior are unchanged, and no-main-page-resync holds. Pure helpers
+(`LibraryPlaylistFilter`, `filterPlaylists`, `filterTracks`) live in
+`LibraryFilters.kt` with JVM unit tests in `LibraryFiltersTest.kt`. Version
+bumped to `0.1.3-search-filter` (versionCode 4).
 
 **Verification**
-1. `./gradlew testDebugUnitTest assembleDebug` → BUILD SUCCESSFUL.
+1. `export JAVA_HOME="$HOME/.local/jdks/jdk-17" ANDROID_HOME="$HOME/Android/Sdk" ANDROID_SDK_ROOT="$HOME/Android/Sdk" PATH="$HOME/.local/jdks/jdk-17/bin:$HOME/Android/Sdk/platform-tools:$HOME/Android/Sdk/cmdline-tools/latest/bin:$PATH"; ./gradlew testDebugUnitTest assembleDebug` → BUILD SUCCESSFUL.
 2. Unit tests for the filter logic (pure functions over `List<SunoPlaylist>`/`List<SunoTrack>`).
 
 **Checkpoint:** review diff → commit (`feat(library): search and filters`) → push.

@@ -3,6 +3,7 @@ package com.duskript.sunolocal.features.library.ui
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +23,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -30,6 +32,7 @@ import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.AlertDialog
@@ -37,6 +40,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -52,6 +56,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -69,7 +74,10 @@ import coil.compose.AsyncImage
 import com.duskript.sunolocal.domain.model.SunoPlaylist
 import com.duskript.sunolocal.domain.model.SunoTrack
 import com.duskript.sunolocal.domain.model.SyncSummary
+import com.duskript.sunolocal.features.library.state.LibraryPlaylistFilter
 import com.duskript.sunolocal.features.library.state.LibraryViewModel
+import com.duskript.sunolocal.features.library.state.filterPlaylists
+import com.duskript.sunolocal.features.library.state.filterTracks
 import com.duskript.sunolocal.shared.ui.ElevenLabsStylePlayer
 
 /**
@@ -110,6 +118,15 @@ fun LibraryScreen(
     var selectedTrackDetails by remember { mutableStateOf<SunoTrack?>(null) }
     var showQueueSheet by remember { mutableStateOf(false) }
     val queueSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+
+    // Batch 3 — search/filter is local UI state; playlist persistence is untouched.
+    var playlistSearchQuery by remember { mutableStateOf("") }
+    var playlistFilter by remember { mutableStateOf(LibraryPlaylistFilter.ALL) }
+    var trackSearchQuery by remember { mutableStateOf("") }
+
+    // Track search applies per-playlist: reset it whenever the open playlist
+    // changes (including returning to the playlist list page).
+    LaunchedEffect(selectedPlaylist?.id) { trackSearchQuery = "" }
 
     if (errorMessage != null && !showErrorDialog) {
         currentError = errorMessage
@@ -367,6 +384,8 @@ fun LibraryScreen(
             when {
                 selected != null -> TrackListView(
                     playlist = selected,
+                    trackSearchQuery = trackSearchQuery,
+                    onTrackSearchQueryChange = { trackSearchQuery = it },
                     customPlaylists = playlists.filter { it.isCustom },
                     onBack = viewModel::clearSelection,
                     onPlayTrack = viewModel::playTrack,
@@ -378,11 +397,27 @@ fun LibraryScreen(
                     onRemoveTrack = { trackId -> viewModel.removeTrackFromCustomPlaylist(selected.id, trackId) }
                 )
                 playlists.isEmpty() -> EmptyLibrary(cookieConfigured = cookieConfigured)
-                else -> PlaylistListView(
-                    playlists = playlists,
-                    onPlaylistClick = viewModel::selectPlaylist,
-                    onPlayPlaylist = viewModel::playPlaylist
-                )
+                else -> {
+                    // Playlist page: search field + All/Downloaded/Custom chips feed
+                    // pure filter functions; the underlying list and its
+                    // no-main-page-resync behavior are untouched.
+                    val filteredPlaylists = filterPlaylists(playlists, playlistSearchQuery, playlistFilter)
+                    PlaylistSearchBar(
+                        query = playlistSearchQuery,
+                        onQueryChange = { playlistSearchQuery = it },
+                        filter = playlistFilter,
+                        onFilterChange = { playlistFilter = it }
+                    )
+                    if (filteredPlaylists.isEmpty()) {
+                        EmptyFilteredPlaylists()
+                    } else {
+                        PlaylistListView(
+                            playlists = filteredPlaylists,
+                            onPlaylistClick = viewModel::selectPlaylist,
+                            onPlayPlaylist = viewModel::playPlaylist
+                        )
+                    }
+                }
             }
         }
     }
@@ -511,6 +546,80 @@ private fun EmptyLibrary(cookieConfigured: Boolean) {
     }
 }
 
+/** Search field + All / Downloaded only / Custom mixes filter chips (Batch 3). */
+@Composable
+private fun PlaylistSearchBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    filter: LibraryPlaylistFilter,
+    onFilterChange: (LibraryPlaylistFilter) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQueryChange,
+            label = { Text("Search playlists") },
+            placeholder = { Text("Title or creator") },
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+            trailingIcon = {
+                if (query.isNotEmpty()) {
+                    IconButton(onClick = { onQueryChange("") }) {
+                        Icon(Icons.Filled.Close, contentDescription = "Clear playlist search")
+                    }
+                }
+            },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(8.dp)
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            FilterChip(
+                selected = filter == LibraryPlaylistFilter.ALL,
+                onClick = { onFilterChange(LibraryPlaylistFilter.ALL) },
+                label = { Text("All") }
+            )
+            FilterChip(
+                selected = filter == LibraryPlaylistFilter.DOWNLOADED_ONLY,
+                onClick = { onFilterChange(LibraryPlaylistFilter.DOWNLOADED_ONLY) },
+                label = { Text("Downloaded only") }
+            )
+            FilterChip(
+                selected = filter == LibraryPlaylistFilter.CUSTOM_MIXES,
+                onClick = { onFilterChange(LibraryPlaylistFilter.CUSTOM_MIXES) },
+                label = { Text("Custom mixes") }
+            )
+        }
+    }
+}
+
+/** Shown when the playlist search/filter hides every playlist. */
+@Composable
+private fun EmptyFilteredPlaylists() {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                Icons.Filled.Search,
+                contentDescription = null,
+                modifier = Modifier.size(48.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Text("No playlists match", style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = "Try a different search or filter",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
 @Composable
 private fun PlaylistListView(
     playlists: List<SunoPlaylist>,
@@ -570,6 +679,8 @@ private fun PlaylistCard(playlist: SunoPlaylist, onClick: () -> Unit, onPlay: ()
 @Composable
 private fun TrackListView(
     playlist: SunoPlaylist,
+    trackSearchQuery: String,
+    onTrackSearchQueryChange: (String) -> Unit,
     customPlaylists: List<SunoPlaylist>,
     onBack: () -> Unit,
     onPlayTrack: (String) -> Unit,
@@ -580,6 +691,9 @@ private fun TrackListView(
     onMoveTrack: (String, Int) -> Unit,
     onRemoveTrack: (String) -> Unit
 ) {
+    // Batch 3 — pure search over the playlist's own tracks. Persistence and the
+    // original track ids used by move/remove actions are untouched.
+    val filteredTracks = filterTracks(playlist.tracks, trackSearchQuery)
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -604,24 +718,52 @@ private fun TrackListView(
                 color = MaterialTheme.colorScheme.primary
             )
         }
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            items(playlist.tracks, key = { it.id }) { track ->
-                TrackRow(
-                    track = track,
-                    isCustomPlaylist = playlist.isCustom,
-                    customPlaylists = customPlaylists,
-                    onClick = { onShowTrackDetails(track) },
-                    onPlay = { onPlayTrack(track.id) },
-                    onAddToQueue = { onAddToQueue(track) },
-                    onAddToPlaylist = { targetId -> onAddToPlaylist(track.id, targetId) },
-                    onMoveUp = { onMoveTrack(track.id, -1) },
-                    onMoveDown = { onMoveTrack(track.id, 1) },
-                    onRemove = { onRemoveTrack(track.id) }
-                )
+        if (playlist.tracks.isNotEmpty()) {
+            OutlinedTextField(
+                value = trackSearchQuery,
+                onValueChange = onTrackSearchQueryChange,
+                label = { Text("Search tracks") },
+                placeholder = { Text("Title, creator, lyrics, style, prompt") },
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (trackSearchQuery.isNotEmpty()) {
+                        IconButton(onClick = { onTrackSearchQueryChange("") }) {
+                            Icon(Icons.Filled.Close, contentDescription = "Clear track search")
+                        }
+                    }
+                },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                shape = RoundedCornerShape(8.dp)
+            )
+        }
+        if (filteredTracks.isEmpty()) {
+            // Search hid everything (an empty playlist shows nothing extra).
+            if (trackSearchQuery.isNotBlank()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("No tracks match", style = MaterialTheme.typography.titleMedium)
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                items(filteredTracks, key = { it.id }) { track ->
+                    TrackRow(
+                        track = track,
+                        isCustomPlaylist = playlist.isCustom,
+                        customPlaylists = customPlaylists,
+                        onClick = { onShowTrackDetails(track) },
+                        onPlay = { onPlayTrack(track.id) },
+                        onAddToQueue = { onAddToQueue(track) },
+                        onAddToPlaylist = { targetId -> onAddToPlaylist(track.id, targetId) },
+                        onMoveUp = { onMoveTrack(track.id, -1) },
+                        onMoveDown = { onMoveTrack(track.id, 1) },
+                        onRemove = { onRemoveTrack(track.id) }
+                    )
+                }
             }
         }
     }
