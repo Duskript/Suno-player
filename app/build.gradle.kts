@@ -12,9 +12,9 @@ android {
         applicationId = "com.duskript.sunolocal"
         minSdk = 26
         targetSdk = 35
-        // Sync-library fix release: versionCode 8, versionName 0.1.7-sync-library-fix.
-        versionCode = 8
-        versionName = "0.1.7-sync-library-fix"
+        // Playlists-only hotfix release: versionCode 9, versionName 0.1.8-playlists-only.
+        versionCode = 9
+        versionName = "0.1.8-playlists-only"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

@@ -22,10 +22,9 @@ The current web app bundles use `https://studio-api-prod.suno.com` and an OpenAP
 | Saved/shared playlists from other profiles | GET | `https://studio-api-prod.suno.com/api/playlist/me?page=1&show_trashed=false&show_sharelist=true` |
 | Playlist detail | GET | `https://studio-api-prod.suno.com/api/playlist/v2/{playlist_id}?page=1` preferred; fallback `https://studio-api-prod.suno.com/api/playlist/{playlist_id}/?page=1` |
 | User session/config | GET | `https://studio-api-prod.suno.com/api/session/` |
-| Current-user metadata | GET | `https://studio-api-prod.suno.com/api/user/metadata` |
 | Session id helper | GET | `https://studio-api-prod.suno.com/api/user/get_user_session_id/` |
 | Clip lookup | GET | `https://studio-api-prod.suno.com/api/clip/{clip_id}` |
-| Library/history/generated songs feed | POST | `https://studio-api-prod.suno.com/api/feed/v3` |
+| Feed clip search / generated-song history | POST | `https://studio-api-prod.suno.com/api/feed/v3` |
 | Track audio fallback | GET | `https://cdn1.suno.ai/{track_id}.mp3` |
 
 ## Authentication
@@ -59,7 +58,7 @@ __session=<jwt>; other_cookie=value
 - Public endpoints can return HTTP 200 while private endpoints return 401, so `/api/session/` alone is not a sufficient auth check for library sync.
 - Playlist response shape includes `playlists` and `playlist_clips[].clip`; parsers should support both direct tracks and nested playlist clip wrappers.
 - Playlists saved from other profiles are not included by the default `show_sharelist=false` query; sync must also query `show_sharelist=true` and de-dupe by playlist id.
-- `/api/playlist/me` returns explicit playlists, not necessarily every generated song. Accounts with generated songs but no playlists can validly return HTTP 200 with `0 total`; sync must also query `/api/feed/v3` with the signed-in `user_id` from `/api/user/metadata` and expose those clips as the synthetic local `My Songs` playlist.
+- `/api/playlist/me` returns explicit playlists, not necessarily every generated song. Generated-song history lives behind `/api/feed/v3`, but importing it by default floods the local library with experiments; keep normal sync playlist-scoped unless a separate opt-in import flow is added.
 - Other-profile playlist metadata/lyrics require the v2 playlist detail endpoint; summary/list responses may omit full `playlist_clips[].clip.metadata`.
 - Audio files may be served as MP3, WAV, OGG, or expiring CDN URLs depending on generation mode.
 - Suno may rotate endpoint paths without notice.

@@ -5,10 +5,8 @@ import com.duskript.sunolocal.domain.model.SunoPlaylist
 import com.duskript.sunolocal.domain.model.SunoTrack
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -47,11 +45,6 @@ class SunoApiClient(
     /** Endpoint to verify current session/config. */
     private val sessionUrl: String get() = "$apiBase/session/"
 
-    /** Current-user metadata endpoint used to scope the generated-song feed. */
-    private val userMetadataUrl: String get() = "$apiBase/user/metadata"
-
-    /** Unified feed endpoint used by Suno's Library/History surfaces for generated songs. */
-    private val feedV3Url: String get() = "$apiBase/feed/v3"
 
     /** CDN base for downloading generated audio files. */
     private val cdnBase: String get() = "https://cdn1.suno.ai"
@@ -73,94 +66,20 @@ class SunoApiClient(
         val ownPlaylists = fetchPlaylistSummaries(includeSavedSharelists = false)
         val savedSharelists = fetchPlaylistSummaries(includeSavedSharelists = true)
             .map { it.copy(savedFromOtherCreator = true) }
-        val generatedSongsPlaylist = fetchMyGeneratedSongsPlaylist()
 
-        // The `show_sharelist=true` endpoint can overlap with normal playlists on
-        // some Suno accounts. Preserve the normal playlist copy first, then add
-        // only extra playlists saved from other profiles. The synthetic My Songs
-        // playlist fills the gap where /playlist/me returns zero explicit
-        // playlists even though /feed/v3 has generated songs to download.
+        // Default library sync must stay playlist-scoped. Pulling the generated
+        // songs feed here floods the local library with every experiment from
+        // the user's generation history, including songs they do not want to
+        // keep. If we add generated-song import later, make it an explicit
+        // opt-in action, not part of Resync Library.
         val mergedById = linkedMapOf<String, SunoPlaylist>()
-        (listOfNotNull(generatedSongsPlaylist) + ownPlaylists + savedSharelists).forEach { playlist ->
+        (ownPlaylists + savedSharelists).forEach { playlist ->
             mergedById.putIfAbsent(playlist.id, playlist)
         }
 
         mergedById.values.map { playlist ->
             fetchPlaylistDetailOrFallback(playlist)
         }
-    }
-
-    /**
-     * Fetch the signed-in user's generated songs from Suno's unified feed and
-     * expose them as a synthetic local playlist. `/api/playlist/me` returns
-     * explicit playlists only, so accounts with songs but no playlists can
-     * otherwise sync as "0 total" despite a valid cookie.
-     */
-    private fun fetchMyGeneratedSongsPlaylist(): SunoPlaylist? {
-        val userId = fetchCurrentUserId() ?: return null
-        val tracks = mutableListOf<SunoTrack>()
-        var cursor: String? = null
-        var pageCount = 0
-
-        do {
-            val request = Request.Builder()
-                .url(feedV3Url)
-                .post(buildMyGeneratedSongsFeedBody(userId, cursor))
-                .withSunoHeaders()
-                .build()
-
-            val response = client.newCall(request).execute()
-            val body = response.body?.string()
-            if (!response.isSuccessful || body == null) {
-                throw apiFailure("Failed to fetch generated songs", response.code, response.message, body)
-            }
-
-            val page = parseFeedClipsPage(body, playlistId = MY_SONGS_PLAYLIST_ID)
-            tracks += page.tracks
-            cursor = page.nextCursor
-            pageCount++
-        } while (!cursor.isNullOrBlank() && page.tracks.isNotEmpty() && pageCount < MAX_FEED_PAGES)
-
-        val uniqueTracks = tracks.distinctBy { it.id }
-        if (uniqueTracks.isEmpty()) return null
-        return SunoPlaylist(
-            id = MY_SONGS_PLAYLIST_ID,
-            title = "My Songs",
-            creatorName = "You",
-            sourceUrl = "https://suno.com/me",
-            tracks = uniqueTracks,
-            savedFromOtherCreator = false,
-            isCustom = false
-        )
-    }
-
-    private fun fetchCurrentUserId(): String? {
-        val request = Request.Builder()
-            .url(userMetadataUrl)
-            .withSunoHeaders()
-            .build()
-        val response = client.newCall(request).execute()
-        val body = response.body?.string()
-        if (!response.isSuccessful || body == null) {
-            throw apiFailure("Failed to fetch Suno user metadata", response.code, response.message, body)
-        }
-        val root = JSONObject(body)
-        return firstNonBlank(root, "user_id", "id")
-            ?: root.optJSONObject("data")?.let { firstNonBlank(it, "user_id", "id") }
-    }
-
-    private fun buildMyGeneratedSongsFeedBody(userId: String, cursor: String?): okhttp3.RequestBody {
-        val filters = JSONObject()
-            .put("trashed", "false")
-            .put("disliked", "false")
-            .put("fromStudioProject", JSONObject().put("presence", "false"))
-            .put("stem", JSONObject().put("presence", "false"))
-            .put("user", JSONObject().put("presence", "true").put("userId", userId))
-        val body = JSONObject()
-            .put("cursor", cursor ?: JSONObject.NULL)
-            .put("limit", FEED_PAGE_SIZE)
-            .put("filters", filters)
-        return body.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
     }
 
     private fun fetchPlaylistSummaries(includeSavedSharelists: Boolean): List<SunoPlaylist> {
@@ -383,29 +302,6 @@ class SunoApiClient(
         }
     }
 
-    private fun parseFeedClipsPage(json: String, playlistId: String): FeedClipsPage {
-        val root = JSONObject(json)
-        val clipsJson = when {
-            root.has("clips") -> root.getJSONArray("clips")
-            root.has("data") && root.get("data") is JSONObject -> {
-                val data = root.getJSONObject("data")
-                when {
-                    data.has("clips") -> data.getJSONArray("clips")
-                    data.has("results") -> data.getJSONArray("results")
-                    else -> JSONArray()
-                }
-            }
-            root.has("results") -> root.getJSONArray("results")
-            else -> JSONArray()
-        }
-        val tracks = (0 until clipsJson.length()).mapNotNull { i ->
-            parseTrackOrPlaylistClip(clipsJson.getJSONObject(i), playlistId)
-        }
-        val nextCursor = firstNonBlank(root, "next_cursor", "nextCursor")
-            ?: root.optJSONObject("data")?.let { firstNonBlank(it, "next_cursor", "nextCursor") }
-        return FeedClipsPage(tracks = tracks, nextCursor = nextCursor)
-    }
-
     private fun parsePlaylistJson(json: JSONObject): SunoPlaylist? {
         val id = firstNonBlank(json, "id", "playlist_id", "slug") ?: return null
         val title = firstNonBlank(json, "title", "name", "display_name") ?: "Untitled Playlist"
@@ -595,9 +491,6 @@ class SunoApiClient(
 
 private const val MAX_PLAYLIST_PAGES = 10
 private const val MAX_PLAYLIST_DETAIL_PAGES = 20
-private const val MAX_FEED_PAGES = 10
-private const val FEED_PAGE_SIZE = 50
-private const val MY_SONGS_PLAYLIST_ID = "suno-my-songs"
 
 private data class PlaylistPage(
     val playlists: List<SunoPlaylist>,
@@ -609,10 +502,6 @@ private data class PlaylistDetailResponse(
     val body: String?
 )
 
-private data class FeedClipsPage(
-    val tracks: List<SunoTrack>,
-    val nextCursor: String?
-)
 
 class SunoApiException(
     message: String,
