@@ -14,6 +14,9 @@ import com.duskript.sunolocal.core.download.SunoDownloadWorker
 import com.duskript.sunolocal.core.network.SunoApiClient
 import com.duskript.sunolocal.core.network.SunoApiException
 import com.duskript.sunolocal.core.player.LocalAudioPlayer
+import com.duskript.sunolocal.core.storage.ImportResult
+import com.duskript.sunolocal.core.storage.LibraryBackup
+import com.duskript.sunolocal.core.storage.LibraryBackupException
 import com.duskript.sunolocal.core.storage.SunoPlaylistJson
 import com.duskript.sunolocal.core.storage.SunoTrackJson
 import com.duskript.sunolocal.core.storage.SyncSummaryStore
@@ -376,6 +379,92 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         } catch (e: Exception) {
             _errorMessage.value = "No app available to share this playlist"
         }
+    }
+
+    // Batch 6 — export / backup via the Storage Access Framework (SAF).
+    //
+    // Export serializes the persisted library (playlists + tracks + metadata +
+    // local file references) to the portable JSON shape; import parses a backup,
+    // merges it with the existing library (existing playlist ids win, duplicate
+    // track ids dropped), persists, and reloads. M3U export writes a plain-text
+    // playlist for one selected playlist. No storage permissions are used — SAF
+    // grants URI access per user action, and no cookies/secrets are exported.
+
+    private val _backupMessage = MutableStateFlow<String?>(null)
+    val backupMessage: StateFlow<String?> = _backupMessage.asStateFlow()
+
+    /** Dismiss the last export/import result message. */
+    fun clearBackupMessage() {
+        _backupMessage.value = null
+    }
+
+    /** Serialize the current persisted library to the portable backup JSON format. */
+    fun libraryBackupJson(): String = LibraryBackup.exportLibraryJson(libraryStore.loadPlaylists())
+
+    /** Write the library backup to a SAF-provided Uri; reports the result via [backupMessage]. */
+    fun exportLibraryToUri(uri: Uri) {
+        try {
+            writeToUri(uri, libraryBackupJson())
+            _backupMessage.value = "Export complete — ${libraryStore.playlistCount()} playlists backed up."
+        } catch (e: Exception) {
+            _backupMessage.value = "Export failed: ${e.message ?: "could not write file"}"
+        }
+    }
+
+    /**
+     * Parse + merge a backup JSON string into the library, persist, and reload.
+     * Returns the merge result; throws [LibraryBackupException] on invalid JSON
+     * (nothing is persisted on failure).
+     */
+    fun importLibraryJson(json: String): ImportResult {
+        val existing = libraryStore.loadPlaylists()
+        val result = LibraryBackup.importLibraryJson(existing, json)
+        libraryStore.savePlaylists(result.playlists)
+        loadLibrary()
+        _backupMessage.value = buildString {
+            append("Import complete — ")
+            append("${result.importedPlaylists} added, ${result.skippedPlaylists} skipped, ")
+            append("${result.importedTracks} tracks added, ${result.skippedTracks} duplicate tracks dropped.")
+        }
+        return result
+    }
+
+    /** Read a backup file from a SAF-provided Uri, merge, persist, reload; reports the result. */
+    fun importLibraryFromUri(uri: Uri) {
+        try {
+            val text = getApplication<Application>().contentResolver
+                .openInputStream(uri)?.use { input -> input.readBytes().toString(Charsets.UTF_8) }
+                ?: throw IllegalStateException("Could not open the selected file")
+            importLibraryJson(text)
+        } catch (e: LibraryBackupException) {
+            _backupMessage.value = "Import failed: ${e.message}"
+        } catch (e: Exception) {
+            _backupMessage.value = "Import failed: ${e.message ?: "could not read file"}"
+        }
+    }
+
+    /** M3U text for a single playlist (localPath, else audioUrl/sourceUrl), or null if not found. */
+    fun playlistM3u(playlistId: String): String? {
+        val playlist = _playlists.value.find { it.id == playlistId } ?: return null
+        return LibraryBackup.exportPlaylistM3u(playlist)
+    }
+
+    /** Write a playlist's M3U to a SAF-provided Uri; reports the result via [backupMessage]. */
+    fun exportM3uToUri(uri: Uri, playlistId: String) {
+        try {
+            val m3u = playlistM3u(playlistId)
+                ?: throw IllegalStateException("Playlist not found")
+            writeToUri(uri, m3u)
+            _backupMessage.value = "M3U export complete."
+        } catch (e: Exception) {
+            _backupMessage.value = "M3U export failed: ${e.message ?: "could not write file"}"
+        }
+    }
+
+    private fun writeToUri(uri: Uri, content: String) {
+        val stream = getApplication<Application>().contentResolver.openOutputStream(uri)
+            ?: throw IllegalStateException("Could not open the selected file")
+        stream.use { it.write(content.toByteArray(Charsets.UTF_8)) }
     }
 
     fun resyncMine() {

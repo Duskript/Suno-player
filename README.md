@@ -14,6 +14,7 @@ An Android-native (Kotlin / Jetpack Compose) app for downloading Suno playlists 
 - **Sync status & reliability** — the last sync result (time, counts, failures) persists across restarts and is shown on the Library page and in Settings → Library Sync; transient network failures retry automatically via WorkManager, and expired cookies surface re-login guidance.
 - **Search & filters** — a search field on the Library page filters playlists by title/creator, with All / Downloaded only / Custom mixes filter chips; inside a playlist, a track search matches title, creator, lyrics, style prompt, and description prompt.
 - **Metadata & discovery** — when Suno provides them, mood/genre/tag fields are fetched, stored (backward-compatible JSON), and shown on track rows and the track detail dialog. Tapping a creator name (track row, detail dialog, or playlist card) opens a local Creator view listing every playlist/track by that creator in the library — no network calls. Track details also show a local **Similar tracks** list scored from shared tags, genre, and style-prompt keywords, again from the library alone.
+- **Export / backup** — export the whole library (playlists + tracks + metadata + local file references) as a single JSON file through Android's Storage Access Framework, or import a backup with duplicate-safe merging (existing playlist ids win, duplicate track ids are dropped; importing never deletes existing content). Playlist details also offer **Export M3U** to write a plain-text `.m3u` playlist (local paths when downloaded, Suno URLs otherwise). See [docs/EXPORT_FORMAT.md](docs/EXPORT_FORMAT.md) for the schema. No storage permissions are used and no cookies/secrets are ever exported.
 
 ## Architecture
 
@@ -25,6 +26,7 @@ com.duskript.sunolocal/
 │   ├── network/SunoApiClient.kt  — Suno unofficial API client
 │   ├── player/LocalAudioPlayer.kt — Media3 ExoPlayer wrapper
 │   ├── storage/LibraryStore.kt   — JSON-based local library persistence
+│   ├── storage/LibraryBackup.kt  — pure export/import/M3U helpers (SAF backup)
 │   └── storage/SyncSummaryStore.kt — persisted last-sync result (suno_last_sync.json)
 ├── domain/model/
 │   ├── SunoTrack.kt
@@ -60,7 +62,7 @@ com.duskript.sunolocal/
    ```
 4. Install the APK on your device/emulator (API 26+).
 
-> **Current build:** `0.1.5-metadata-discovery` (versionCode 6) — builds with JDK 17+ and Android SDK platform 35 via the Gradle wrapper. Requires JDK 17+ (Android Gradle Plugin 8.7) and the corresponding SDK platform.
+> **Current build:** `0.1.6-export-backup` (versionCode 7) — builds with JDK 17+ and Android SDK platform 35 via the Gradle wrapper. Requires JDK 17+ (Android Gradle Plugin 8.7) and the corresponding SDK platform.
 
 ## Suno API Status
 

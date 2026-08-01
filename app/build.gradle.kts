@@ -12,9 +12,9 @@ android {
         applicationId = "com.duskript.sunolocal"
         minSdk = 26
         targetSdk = 35
-        // Batch 5 (metadata & discovery) release: versionCode 6, versionName 0.1.5-metadata-discovery.
-        versionCode = 6
-        versionName = "0.1.5-metadata-discovery"
+        // Batch 6 (export & backup) release: versionCode 7, versionName 0.1.6-export-backup.
+        versionCode = 7
+        versionName = "0.1.6-export-backup"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -67,6 +67,7 @@ dependencies {
     implementation(libs.androidx.security.crypto)
     implementation(libs.coil.compose)
     testImplementation(libs.junit)
+    testImplementation(libs.json)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.mockito.core)
 }

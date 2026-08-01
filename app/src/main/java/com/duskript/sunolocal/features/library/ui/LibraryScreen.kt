@@ -1,5 +1,7 @@
 package com.duskript.sunolocal.features.library.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -26,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -85,6 +88,9 @@ import com.duskript.sunolocal.features.library.state.similarTracks
 import com.duskript.sunolocal.features.library.state.trackMetadataLine
 import com.duskript.sunolocal.features.library.state.tracksByCreator
 import com.duskript.sunolocal.shared.ui.ElevenLabsStylePlayer
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * Main library screen with lyrics-on-tap, Suno metadata/art, custom playlists,
@@ -113,6 +119,8 @@ fun LibraryScreen(
     val playbackProgress by viewModel.playbackProgress.collectAsState()
     val repeatMode by viewModel.repeatMode.collectAsState()
     val playbackErrorMessage by viewModel.playbackErrorMessage.collectAsState()
+    // Batch 6 — export/import result messages surface in a dismissible dialog.
+    val backupMessage by viewModel.backupMessage.collectAsState()
 
     var showCookieDialog by remember { mutableStateOf(false) }
     var cookieInput by remember { mutableStateOf("") }
@@ -133,6 +141,29 @@ fun LibraryScreen(
     var playlistToDelete by remember { mutableStateOf<SunoPlaylist?>(null) }
     var playlistToDuplicate by remember { mutableStateOf<SunoPlaylist?>(null) }
     var duplicateInput by remember { mutableStateOf("") }
+
+    // Batch 6 — SAF export/import wiring. Launchers write/read user-chosen
+    // documents; no storage permissions are requested (SAF grants URI access).
+    // The M3U launcher remembers which playlist to export via m3uPlaylistId,
+    // set right before launching so the result callback can resolve it.
+    var m3uPlaylistId by remember { mutableStateOf<String?>(null) }
+
+    val exportBackupLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri -> uri?.let { viewModel.exportLibraryToUri(it) } }
+
+    val importBackupLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let { viewModel.importLibraryFromUri(it) } }
+
+    val exportM3uLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("audio/x-mpegurl")
+    ) { uri ->
+        val playlistId = m3uPlaylistId
+        if (uri != null && playlistId != null) {
+            viewModel.exportM3uToUri(uri, playlistId)
+        }
+    }
 
     // Batch 3 — search/filter is local UI state; playlist persistence is untouched.
     var playlistSearchQuery by remember { mutableStateOf("") }
@@ -426,6 +457,19 @@ fun LibraryScreen(
         )
     }
 
+    // Batch 6 — export/import result (success counts or a clear failure),
+    // shown as a dismissible dialog so the user can read and acknowledge it.
+    backupMessage?.let { message ->
+        AlertDialog(
+            onDismissRequest = { viewModel.clearBackupMessage() },
+            title = { Text("Backup", fontWeight = FontWeight.Bold) },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = { viewModel.clearBackupMessage() }) { Text("OK") }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -495,6 +539,17 @@ fun LibraryScreen(
                 )
             }
 
+            // Batch 6 — backup actions are always available (even before the
+            // cookie is configured, so local custom mixes can be exported).
+            BackupActionsRow(
+                onExportBackup = {
+                    exportBackupLauncher.launch(backupFileName())
+                },
+                onImportBackup = {
+                    importBackupLauncher.launch(arrayOf("application/json"))
+                }
+            )
+
             val selected = selectedPlaylist
             val creator = selectedCreator
             when {
@@ -537,6 +592,10 @@ fun LibraryScreen(
                     },
                     onOpenSource = { viewModel.openPlaylistSource(selected.id) },
                     onShareSource = { viewModel.sharePlaylistSource(selected.id) },
+                    onExportM3u = {
+                        m3uPlaylistId = selected.id
+                        exportM3uLauncher.launch(m3uFileName(selected.title))
+                    },
                     onCreatorClick = viewModel::selectCreator
                 )
                 playlists.isEmpty() -> EmptyLibrary(cookieConfigured = cookieConfigured)
@@ -633,6 +692,31 @@ private fun LibraryControls(
                 Icon(Icons.Filled.Shuffle, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
                 Text(if (shuffleEnabled) "Shuffle ON" else "Shuffle")
             }
+        }
+    }
+}
+
+/**
+ * Batch 6 — Export Backup / Import Backup actions. Both use SAF document
+ * intents (ACTION_CREATE_DOCUMENT / ACTION_OPEN_DOCUMENT), so no storage
+ * permissions are needed; the user picks the target file per action.
+ */
+@Composable
+private fun BackupActionsRow(
+    onExportBackup: () -> Unit,
+    onImportBackup: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        OutlinedButton(onClick = onExportBackup, modifier = Modifier.weight(1f)) {
+            Icon(Icons.Filled.CloudDownload, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+            Text("Export Backup")
+        }
+        OutlinedButton(onClick = onImportBackup, modifier = Modifier.weight(1f)) {
+            Icon(Icons.Filled.CloudUpload, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
+            Text("Import Backup")
         }
     }
 }
@@ -918,6 +1002,7 @@ private fun TrackListView(
     onDuplicatePlaylist: () -> Unit,
     onOpenSource: () -> Unit,
     onShareSource: () -> Unit,
+    onExportM3u: () -> Unit,
     onCreatorClick: (String) -> Unit
 ) {
     // Batch 3 — pure search over the playlist's own tracks. Persistence and the
@@ -971,7 +1056,9 @@ private fun TrackListView(
                 }
             }
             // Batch 4 — manager actions; duplicate works from the details page too.
+            // Batch 6 — Export M3U writes a plain-text playlist via SAF.
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                PlaylistManagerButton("Export M3U", onClick = onExportM3u)
                 if (playlist.isCustom) {
                     PlaylistManagerButton("Rename", onClick = onRenamePlaylist)
                     PlaylistManagerButton("Duplicate", onClick = onDuplicatePlaylist)
@@ -1530,3 +1617,20 @@ private fun CreatorTrackRow(
 
 /** Which kind of playlist the Add Playlist wizard is currently collecting input for. */
 private enum class AddPlaylistMode { LOCAL, URL }
+
+// Batch 6 — suggested SAF document names.
+
+/** Timestamped default name for library backups, e.g. suno-library-backup-20260731-183000.json. */
+private fun backupFileName(): String {
+    val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+    return "suno-library-backup-$stamp.json"
+}
+
+/** File name for an M3U export, slugified from the playlist title. */
+private fun m3uFileName(title: String): String {
+    val slug = title.lowercase(Locale.US)
+        .replace(Regex("[^a-z0-9]+"), "-")
+        .trim('-')
+        .take(40)
+    return "${slug.ifBlank { "playlist" }}.m3u"
+}

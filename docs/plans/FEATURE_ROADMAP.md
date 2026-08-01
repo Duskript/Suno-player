@@ -2,10 +2,11 @@
 
 This document is a **plan only** for the batches that remain. **Batch 1
 (playback polish), Batch 2 (sync visibility & reliability), Batch 3 (search /
-filter), Batch 4 (playlist manager), and Batch 5 (metadata & discovery) are
-implemented** — see the verification notes in their sections below. Each
-remaining batch is small enough to review, verify, commit, and push on its
-own. The current shipped surface is described in the project `README.md`.
+filter), Batch 4 (playlist manager), Batch 5 (metadata & discovery), and
+Batch 6 (export / backup) are implemented** — see the verification notes in
+their sections below. Each remaining batch is small enough to review, verify,
+commit, and push on its own. The current shipped surface is described in the
+project `README.md`.
 
 > ⚠️ **Commit/push checkpoint language is for the planner/human maintainer.**
 > Executors working from these batches must **not** commit or push themselves;
@@ -203,14 +204,56 @@ bumped to `0.1.5-metadata-discovery` (versionCode 6).
 
 **Goal:** the library is portable and never locked in app-private JSON.
 
-- [ ] Export library as a single JSON file via Android Storage Access Framework (SAF) — playlists + tracks + metadata + local file references.
-- [ ] Import library JSON via SAF with conflict resolution (skip duplicates by track id).
-- [ ] Optional: export a plain-text/m3u playlist file for one playlist.
-- [ ] Document the JSON schema in `docs/EXPORT_FORMAT.md`.
+- [x] Export library as a single JSON file via Android Storage Access Framework (SAF) — playlists + tracks + metadata + local file references.
+- [x] Import library JSON via SAF with conflict resolution (skip duplicates by track id).
+- [x] Optional: export a plain-text/m3u playlist file for one playlist.
+- [x] Document the JSON schema in `docs/EXPORT_FORMAT.md`.
+
+**Implemented (2026-07-31).** The Library page now shows **Export Backup** and
+**Import Backup** actions (always available, even before the cookie is
+configured) that use SAF document intents — `ACTION_CREATE_DOCUMENT`
+(`CreateDocument("application/json")`, suggested name
+`suno-library-backup-<timestamp>.json`) and `ACTION_OPEN_DOCUMENT`
+(`OpenDocument` filtered to `application/json`). No storage permissions are
+requested; SAF grants per-action URI access, and the URI is written/read
+immediately via `ContentResolver`. Export serializes the persisted library
+(playlists + tracks + metadata + local file references) with `LibraryBackup`
+into the exact JSON shape app-private storage already uses, so a backup can be
+re-imported by the app itself. Import merges the backup into the existing
+library — an incoming playlist whose id already exists is skipped (existing
+wins), duplicate track ids inside an imported playlist are dropped (first
+occurrence wins, order preserved), and **nothing is ever deleted**: the merged
+library is persisted via `LibraryStore.savePlaylists`, reloaded, and the open
+selection is re-resolved. Results (import/export counts or a clear failure)
+surface in a dismissible dialog via the `backupMessage` StateFlow; invalid
+JSON throws a controlled `LibraryBackupException` that is caught and reported
+without persisting anything.
+
+**Playlist details also export M3U** (the optional item): an **Export M3U**
+button writes a plain-text playlist via `CreateDocument("audio/x-mpegurl")`,
+with `#EXTM3U` / `#EXTINF:<seconds>,<title>` entries using the local file path
+when downloaded, else the Suno audio URL, else the source URL (tracks with no
+location are omitted).
+
+The JSON schema (top-level form, playlist fields, track fields, backward
+compatibility, duplicate handling, and the no-cookies/secrets guarantee) is
+documented in `docs/EXPORT_FORMAT.md`. All backup logic is pure JVM code in
+`LibraryBackup.kt` (`exportLibraryJson`, `importLibraryJson` returning an
+`ImportResult` with playlists/imported/skipped counts, `exportPlaylistM3u`,
+`parseLibraryJson` accepting both the raw array and a `{"version", "playlists"}`
+wrapper) with unit tests in `LibraryBackupTest.kt`. `LibraryStore`'s
+serialisation/parsing helpers were exposed as internal top-level functions
+shared with `LibraryBackup` so export/import and app-private storage can never
+drift apart — storage behavior itself is unchanged. Version bumped to
+`0.1.6-export-backup` (versionCode 7).
 
 **Verification**
 1. `./gradlew testDebugUnitTest assembleDebug` → BUILD SUCCESSFUL.
-2. Unit tests: export → import round-trip preserves ids, order, custom playlist membership.
+2. Unit tests (`LibraryBackupTest`): export → import round-trip preserves ids,
+   order, metadata (`tags`/`mood`/`genre`), and custom playlist membership;
+   import skips duplicate playlist ids; import dedupes duplicate track ids;
+   corrupt/invalid JSON throws `LibraryBackupException`; M3U output contains
+   `#EXTM3U` and track paths/URLs.
 3. Manual: export, wipe app data, import, confirm library restored.
 
 **Checkpoint:** review diff → commit (`feat(export): SAF JSON backup and restore`) → push → release APK with release notes.

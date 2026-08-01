@@ -102,98 +102,6 @@ class LibraryStore(context: Context) {
         libraryFile.writeText(array.toString(2))
     }
 
-    private fun serialisePlaylist(playlist: SunoPlaylistJson): JSONObject {
-        val tracks = JSONArray()
-        playlist.tracks.forEach { track ->
-            tracks.put(JSONObject().apply {
-                put("id", track.id)
-                put("title", track.title)
-                put("audio_url", track.audioUrl ?: JSONObject.NULL)
-                put("local_path", track.localPath ?: JSONObject.NULL)
-                put("image_url", track.imageUrl ?: JSONObject.NULL)
-                put("duration_ms", track.durationMs ?: JSONObject.NULL)
-                put("playlist_id", track.playlistId ?: JSONObject.NULL)
-                put("creator_name", track.creatorName ?: JSONObject.NULL)
-                put("source_url", track.sourceUrl ?: JSONObject.NULL)
-                put("lyrics", track.lyrics ?: JSONObject.NULL)
-                put("style_prompt", track.stylePrompt ?: JSONObject.NULL)
-                put("description_prompt", track.descriptionPrompt ?: JSONObject.NULL)
-                // Batch 5 — optional discovery metadata. `tags` is always
-                // written (possibly empty); `mood`/`genre` follow the same
-                // NULL-when-absent convention as the other optional fields.
-                put("tags", JSONArray(track.tags))
-                put("mood", track.mood ?: JSONObject.NULL)
-                put("genre", track.genre ?: JSONObject.NULL)
-                put("downloaded_at_epoch_ms", track.downloadedAtEpochMs)
-            })
-        }
-
-        return JSONObject().apply {
-            put("id", playlist.id)
-            put("title", playlist.title)
-            put("creator_name", playlist.creatorName ?: JSONObject.NULL)
-            put("source_url", playlist.sourceUrl ?: JSONObject.NULL)
-            put("saved_from_other_creator", playlist.savedFromOtherCreator)
-            put("is_custom", playlist.isCustom)
-            put("last_synced_at_epoch_ms", playlist.lastSyncedAtEpochMs)
-            put("tracks", tracks)
-        }
-    }
-
-    private fun parsePlaylistJson(json: JSONObject): SunoPlaylistJson? {
-        val id = json.optString("id").takeIf { it.isNotBlank() } ?: return null
-        val title = json.optString("title").takeIf { it.isNotBlank() } ?: "Untitled"
-
-        val tracksArray = json.optJSONArray("tracks") ?: JSONArray()
-        val tracks = (0 until tracksArray.length()).mapNotNull { i ->
-            parseTrackJson(tracksArray.getJSONObject(i))
-        }
-
-        return SunoPlaylistJson(
-            id = id,
-            title = title,
-            creatorName = json.optNullableString("creator_name"),
-            sourceUrl = json.optNullableString("source_url"),
-            tracks = tracks,
-            savedFromOtherCreator = json.optBoolean("saved_from_other_creator", false),
-            isCustom = json.optBoolean("is_custom", false),
-            lastSyncedAtEpochMs = json.optLong("last_synced_at_epoch_ms", 0L)
-        )
-    }
-
-    private fun parseTrackJson(json: JSONObject): SunoTrackJson? {
-        val id = json.optString("id").takeIf { it.isNotBlank() } ?: return null
-        return SunoTrackJson(
-            id = id,
-            title = json.optString("title").takeIf { it.isNotBlank() } ?: "Untitled",
-            audioUrl = json.optNullableString("audio_url"),
-            localPath = json.optNullableString("local_path"),
-            imageUrl = json.optNullableString("image_url"),
-            durationMs = json.optLong("duration_ms", -1L).takeIf { it >= 0 },
-            playlistId = json.optNullableString("playlist_id"),
-            creatorName = json.optNullableString("creator_name"),
-            sourceUrl = json.optNullableString("source_url"),
-            lyrics = json.optNullableString("lyrics"),
-            stylePrompt = json.optNullableString("style_prompt"),
-            descriptionPrompt = json.optNullableString("description_prompt"),
-            // Batch 5 — missing keys in old JSON yield emptyList()/null, so
-            // libraries written before this batch load unchanged.
-            tags = json.optJSONArray("tags")?.let { array ->
-                (0 until array.length()).mapNotNull { i ->
-                    array.optString(i).trim().takeIf { it.isNotBlank() && it != "null" }
-                }
-            } ?: emptyList(),
-            mood = json.optNullableString("mood"),
-            genre = json.optNullableString("genre"),
-            downloadedAtEpochMs = json.optLong("downloaded_at_epoch_ms", 0L)
-        )
-    }
-
-    private fun JSONObject.optNullableString(key: String): String? {
-        if (!has(key) || isNull(key)) return null
-        return optString(key).takeIf { it.isNotBlank() && it != "null" }
-    }
-
     companion object {
         private const val FILE_NAME = "suno_library.json"
     }
@@ -259,3 +167,100 @@ private fun SunoTrack.toJson(): SunoTrackJson = SunoTrackJson(
     genre = genre,
     downloadedAtEpochMs = downloadedAtEpochMs
 )
+
+// Batch 6 — serialisation/parsing helpers are exposed as internal top-level
+// functions so the pure LibraryBackup helpers (export/import of the portable
+// backup JSON and M3U generation) share the exact same schema as app-private
+// storage. Behavior is unchanged; call sites inside LibraryStore are identical.
+
+internal fun serialisePlaylist(playlist: SunoPlaylistJson): JSONObject {
+    val tracks = JSONArray()
+    playlist.tracks.forEach { track ->
+        tracks.put(JSONObject().apply {
+            put("id", track.id)
+            put("title", track.title)
+            put("audio_url", track.audioUrl ?: JSONObject.NULL)
+            put("local_path", track.localPath ?: JSONObject.NULL)
+            put("image_url", track.imageUrl ?: JSONObject.NULL)
+            put("duration_ms", track.durationMs ?: JSONObject.NULL)
+            put("playlist_id", track.playlistId ?: JSONObject.NULL)
+            put("creator_name", track.creatorName ?: JSONObject.NULL)
+            put("source_url", track.sourceUrl ?: JSONObject.NULL)
+            put("lyrics", track.lyrics ?: JSONObject.NULL)
+            put("style_prompt", track.stylePrompt ?: JSONObject.NULL)
+            put("description_prompt", track.descriptionPrompt ?: JSONObject.NULL)
+            // Batch 5 — optional discovery metadata. `tags` is always
+            // written (possibly empty); `mood`/`genre` follow the same
+            // NULL-when-absent convention as the other optional fields.
+            put("tags", JSONArray(track.tags))
+            put("mood", track.mood ?: JSONObject.NULL)
+            put("genre", track.genre ?: JSONObject.NULL)
+            put("downloaded_at_epoch_ms", track.downloadedAtEpochMs)
+        })
+    }
+
+    return JSONObject().apply {
+        put("id", playlist.id)
+        put("title", playlist.title)
+        put("creator_name", playlist.creatorName ?: JSONObject.NULL)
+        put("source_url", playlist.sourceUrl ?: JSONObject.NULL)
+        put("saved_from_other_creator", playlist.savedFromOtherCreator)
+        put("is_custom", playlist.isCustom)
+        put("last_synced_at_epoch_ms", playlist.lastSyncedAtEpochMs)
+        put("tracks", tracks)
+    }
+}
+
+internal fun parsePlaylistJson(json: JSONObject): SunoPlaylistJson? {
+    val id = json.optString("id").takeIf { it.isNotBlank() } ?: return null
+    val title = json.optString("title").takeIf { it.isNotBlank() } ?: "Untitled"
+
+    val tracksArray = json.optJSONArray("tracks") ?: JSONArray()
+    val tracks = (0 until tracksArray.length()).mapNotNull { i ->
+        parseTrackJson(tracksArray.getJSONObject(i))
+    }
+
+    return SunoPlaylistJson(
+        id = id,
+        title = title,
+        creatorName = json.optNullableString("creator_name"),
+        sourceUrl = json.optNullableString("source_url"),
+        tracks = tracks,
+        savedFromOtherCreator = json.optBoolean("saved_from_other_creator", false),
+        isCustom = json.optBoolean("is_custom", false),
+        lastSyncedAtEpochMs = json.optLong("last_synced_at_epoch_ms", 0L)
+    )
+}
+
+internal fun parseTrackJson(json: JSONObject): SunoTrackJson? {
+    val id = json.optString("id").takeIf { it.isNotBlank() } ?: return null
+    return SunoTrackJson(
+        id = id,
+        title = json.optString("title").takeIf { it.isNotBlank() } ?: "Untitled",
+        audioUrl = json.optNullableString("audio_url"),
+        localPath = json.optNullableString("local_path"),
+        imageUrl = json.optNullableString("image_url"),
+        durationMs = json.optLong("duration_ms", -1L).takeIf { it >= 0 },
+        playlistId = json.optNullableString("playlist_id"),
+        creatorName = json.optNullableString("creator_name"),
+        sourceUrl = json.optNullableString("source_url"),
+        lyrics = json.optNullableString("lyrics"),
+        stylePrompt = json.optNullableString("style_prompt"),
+        descriptionPrompt = json.optNullableString("description_prompt"),
+        // Batch 5 — missing keys in old JSON yield emptyList()/null, so
+        // libraries written before this batch load unchanged.
+        tags = json.optJSONArray("tags")?.let { array ->
+            (0 until array.length()).mapNotNull { i ->
+                array.optString(i).trim().takeIf { it.isNotBlank() && it != "null" }
+            }
+        } ?: emptyList(),
+        mood = json.optNullableString("mood"),
+        genre = json.optNullableString("genre"),
+        downloadedAtEpochMs = json.optLong("downloaded_at_epoch_ms", 0L)
+    )
+}
+
+private fun JSONObject.optNullableString(key: String): String? {
+    if (!has(key) || isNull(key)) return null
+    return optString(key).takeIf { it.isNotBlank() && it != "null" }
+}
