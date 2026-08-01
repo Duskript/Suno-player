@@ -76,6 +76,7 @@ import com.duskript.sunolocal.domain.model.SunoTrack
 import com.duskript.sunolocal.domain.model.SyncSummary
 import com.duskript.sunolocal.features.library.state.LibraryPlaylistFilter
 import com.duskript.sunolocal.features.library.state.LibraryViewModel
+import com.duskript.sunolocal.features.library.state.defaultDuplicateTitle
 import com.duskript.sunolocal.features.library.state.filterPlaylists
 import com.duskript.sunolocal.features.library.state.filterTracks
 import com.duskript.sunolocal.shared.ui.ElevenLabsStylePlayer
@@ -118,6 +119,14 @@ fun LibraryScreen(
     var selectedTrackDetails by remember { mutableStateOf<SunoTrack?>(null) }
     var showQueueSheet by remember { mutableStateOf(false) }
     val queueSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+
+    // Batch 4 — playlist manager dialog state: rename (text input), delete
+    // (confirm with title), duplicate (name input, defaulted to "<title> Copy").
+    var playlistToRename by remember { mutableStateOf<SunoPlaylist?>(null) }
+    var renameInput by remember { mutableStateOf("") }
+    var playlistToDelete by remember { mutableStateOf<SunoPlaylist?>(null) }
+    var playlistToDuplicate by remember { mutableStateOf<SunoPlaylist?>(null) }
+    var duplicateInput by remember { mutableStateOf("") }
 
     // Batch 3 — search/filter is local UI state; playlist persistence is untouched.
     var playlistSearchQuery by remember { mutableStateOf("") }
@@ -254,6 +263,82 @@ fun LibraryScreen(
                 }) { Text("Save") }
             },
             dismissButton = { TextButton(onClick = { addPlaylistMode = null }) { Text("Cancel") } }
+        )
+    }
+
+    // Batch 4 — rename custom playlist (text input, seeded with current title).
+    playlistToRename?.let { target ->
+        AlertDialog(
+            onDismissRequest = { playlistToRename = null },
+            title = { Text("Rename Playlist", fontWeight = FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = renameInput,
+                    onValueChange = { renameInput = it },
+                    label = { Text("Playlist name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.renameCustomPlaylist(target.id, renameInput)
+                    playlistToRename = null
+                }) { Text("Rename") }
+            },
+            dismissButton = { TextButton(onClick = { playlistToRename = null }) { Text("Cancel") } }
+        )
+    }
+
+    // Batch 4 — delete custom playlist (confirm dialog with the playlist title).
+    playlistToDelete?.let { target ->
+        AlertDialog(
+            onDismissRequest = { playlistToDelete = null },
+            title = { Text("Delete Playlist?", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    text = "Delete \"${target.title}\"? This removes the custom mix and its track order. Downloaded tracks stay in your library.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.deleteCustomPlaylist(target.id)
+                    playlistToDelete = null
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { playlistToDelete = null }) { Text("Cancel") } }
+        )
+    }
+
+    // Batch 4 — duplicate any playlist into a new custom mix (name input).
+    playlistToDuplicate?.let { target ->
+        AlertDialog(
+            onDismissRequest = { playlistToDuplicate = null },
+            title = { Text("Duplicate Playlist", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Copies ${target.trackCount} tracks into a new custom mix you can reorder.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    OutlinedTextField(
+                        value = duplicateInput,
+                        onValueChange = { duplicateInput = it },
+                        label = { Text("New playlist name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.duplicatePlaylist(target.id, duplicateInput)
+                    playlistToDuplicate = null
+                }) { Text("Duplicate") }
+            },
+            dismissButton = { TextButton(onClick = { playlistToDuplicate = null }) { Text("Cancel") } }
         )
     }
 
@@ -394,7 +479,18 @@ fun LibraryScreen(
                     onAddToQueue = { viewModel.addTrackToQueue(it.id) },
                     onAddToPlaylist = viewModel::addTrackToCustomPlaylist,
                     onMoveTrack = { trackId, direction -> viewModel.moveTrackInPlaylist(selected.id, trackId, direction) },
-                    onRemoveTrack = { trackId -> viewModel.removeTrackFromCustomPlaylist(selected.id, trackId) }
+                    onRemoveTrack = { trackId -> viewModel.removeTrackFromCustomPlaylist(selected.id, trackId) },
+                    onRenamePlaylist = {
+                        playlistToRename = selected
+                        renameInput = selected.title
+                    },
+                    onDeletePlaylist = { playlistToDelete = selected },
+                    onDuplicatePlaylist = {
+                        playlistToDuplicate = selected
+                        duplicateInput = defaultDuplicateTitle(selected.title)
+                    },
+                    onOpenSource = { viewModel.openPlaylistSource(selected.id) },
+                    onShareSource = { viewModel.sharePlaylistSource(selected.id) }
                 )
                 playlists.isEmpty() -> EmptyLibrary(cookieConfigured = cookieConfigured)
                 else -> {
@@ -414,7 +510,18 @@ fun LibraryScreen(
                         PlaylistListView(
                             playlists = filteredPlaylists,
                             onPlaylistClick = viewModel::selectPlaylist,
-                            onPlayPlaylist = viewModel::playPlaylist
+                            onPlayPlaylist = viewModel::playPlaylist,
+                            onRenamePlaylist = { playlist ->
+                                playlistToRename = playlist
+                                renameInput = playlist.title
+                            },
+                            onDeletePlaylist = { playlistToDelete = it },
+                            onDuplicatePlaylist = { playlist ->
+                                playlistToDuplicate = playlist
+                                duplicateInput = defaultDuplicateTitle(playlist.title)
+                            },
+                            onOpenSource = viewModel::openPlaylistSource,
+                            onShareSource = viewModel::sharePlaylistSource
                         )
                     }
                 }
@@ -624,7 +731,12 @@ private fun EmptyFilteredPlaylists() {
 private fun PlaylistListView(
     playlists: List<SunoPlaylist>,
     onPlaylistClick: (String) -> Unit,
-    onPlayPlaylist: (String) -> Unit
+    onPlayPlaylist: (String) -> Unit,
+    onRenamePlaylist: (SunoPlaylist) -> Unit,
+    onDeletePlaylist: (SunoPlaylist) -> Unit,
+    onDuplicatePlaylist: (SunoPlaylist) -> Unit,
+    onOpenSource: (String) -> Unit,
+    onShareSource: (String) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -635,14 +747,28 @@ private fun PlaylistListView(
             PlaylistCard(
                 playlist = playlist,
                 onClick = { onPlaylistClick(playlist.id) },
-                onPlay = { onPlayPlaylist(playlist.id) }
+                onPlay = { onPlayPlaylist(playlist.id) },
+                onRename = { onRenamePlaylist(playlist) },
+                onDuplicate = { onDuplicatePlaylist(playlist) },
+                onDelete = { onDeletePlaylist(playlist) },
+                onOpenSource = { onOpenSource(playlist.id) },
+                onShareSource = { onShareSource(playlist.id) }
             )
         }
     }
 }
 
 @Composable
-private fun PlaylistCard(playlist: SunoPlaylist, onClick: () -> Unit, onPlay: () -> Unit) {
+private fun PlaylistCard(
+    playlist: SunoPlaylist,
+    onClick: () -> Unit,
+    onPlay: () -> Unit,
+    onRename: () -> Unit,
+    onDuplicate: () -> Unit,
+    onDelete: () -> Unit,
+    onOpenSource: () -> Unit,
+    onShareSource: () -> Unit
+) {
     Card(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
@@ -673,6 +799,43 @@ private fun PlaylistCard(playlist: SunoPlaylist, onClick: () -> Unit, onPlay: ()
                 Icon(Icons.Filled.PlayArrow, contentDescription = "Play ${playlist.title}")
             }
         }
+        // Batch 4 — manager actions: rename/delete only for custom mixes;
+        // duplicate works for any playlist; Open in Suno / Share for URL-saved ones.
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            if (playlist.isCustom) {
+                PlaylistManagerButton("Rename", onClick = onRename)
+                PlaylistManagerButton("Duplicate", onClick = onDuplicate)
+                PlaylistManagerButton(
+                    "Delete",
+                    onClick = onDelete,
+                    color = MaterialTheme.colorScheme.error
+                )
+            } else {
+                PlaylistManagerButton("Duplicate", onClick = onDuplicate)
+                if (playlist.sourceUrl != null) {
+                    PlaylistManagerButton("Open in Suno", onClick = onOpenSource)
+                    PlaylistManagerButton("Share", onClick = onShareSource)
+                }
+            }
+        }
+    }
+}
+
+/** Compact text-button used by the playlist manager rows. */
+@Composable
+private fun PlaylistManagerButton(
+    label: String,
+    onClick: () -> Unit,
+    color: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.primary
+) {
+    TextButton(
+        onClick = onClick,
+        contentPadding = PaddingValues(horizontal = 8.dp)
+    ) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = color)
     }
 }
 
@@ -689,7 +852,12 @@ private fun TrackListView(
     onAddToQueue: (SunoTrack) -> Unit,
     onAddToPlaylist: (String, String) -> Unit,
     onMoveTrack: (String, Int) -> Unit,
-    onRemoveTrack: (String) -> Unit
+    onRemoveTrack: (String) -> Unit,
+    onRenamePlaylist: () -> Unit,
+    onDeletePlaylist: () -> Unit,
+    onDuplicatePlaylist: () -> Unit,
+    onOpenSource: () -> Unit,
+    onShareSource: () -> Unit
 ) {
     // Batch 3 — pure search over the playlist's own tracks. Persistence and the
     // original track ids used by move/remove actions are untouched.
@@ -713,10 +881,48 @@ private fun TrackListView(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                text = "Tap a song for lyrics • Play button starts audio • +Q adds to queue",
+                text = "Tap a song for lyrics • Play button starts audio • +Q adds to queue" +
+                    if (playlist.isCustom) " • ↑/↓ reorder this mix" else "",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.primary
             )
+            // Batch 4 — source URL for URL-saved playlists, with external
+            // open/share actions (ACTION_VIEW / ACTION_SEND; no silent mutations).
+            playlist.sourceUrl?.let { sourceUrl ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Source URL: $sourceUrl",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    TextButton(onClick = onOpenSource, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                        Text("Open in Suno", style = MaterialTheme.typography.labelMedium)
+                    }
+                    TextButton(onClick = onShareSource, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                        Text("Share", style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+            }
+            // Batch 4 — manager actions; duplicate works from the details page too.
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                if (playlist.isCustom) {
+                    PlaylistManagerButton("Rename", onClick = onRenamePlaylist)
+                    PlaylistManagerButton("Duplicate", onClick = onDuplicatePlaylist)
+                    PlaylistManagerButton(
+                        "Delete",
+                        onClick = onDeletePlaylist,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                } else {
+                    PlaylistManagerButton("Duplicate", onClick = onDuplicatePlaylist)
+                }
+            }
         }
         if (playlist.tracks.isNotEmpty()) {
             OutlinedTextField(

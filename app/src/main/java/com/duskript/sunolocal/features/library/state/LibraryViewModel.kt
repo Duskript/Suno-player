@@ -285,6 +285,81 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         loadLibrary()
     }
 
+    // Batch 4 — playlist manager: rename/delete custom playlists, duplicate any
+    // playlist into a new custom mix, and open/share the source URL of
+    // URL-saved playlists. All mutations go through LibraryStore (the single
+    // persistence layer); loadLibrary() also re-resolves the open selection so
+    // the details page reflects renames/deletes immediately.
+
+    /** Rename a custom playlist. Blank/whitespace input keeps the current title. */
+    fun renameCustomPlaylist(playlistId: String, newTitle: String) {
+        val playlist = _playlists.value.find { it.id == playlistId && it.isCustom } ?: return
+        val cleanTitle = cleanPlaylistTitle(newTitle, fallback = playlist.title)
+        if (cleanTitle == playlist.title) return
+        libraryStore.upsertPlaylist(
+            playlist.copy(title = cleanTitle, lastSyncedAtEpochMs = System.currentTimeMillis())
+        )
+        loadLibrary()
+    }
+
+    /** Delete a custom playlist; closes the details page if it was open. */
+    fun deleteCustomPlaylist(playlistId: String) {
+        val playlist = _playlists.value.find { it.id == playlistId && it.isCustom } ?: return
+        libraryStore.removePlaylist(playlistId)
+        if (_selectedPlaylist.value?.id == playlistId) {
+            _selectedPlaylist.value = null
+        }
+        loadLibrary()
+    }
+
+    /**
+     * Duplicate any playlist into a new custom mix, copying track list/order.
+     * [title] defaults to "<original> Copy"; the result is always a custom
+     * playlist (isCustom = true, creatorName = "You", unique custom- id).
+     */
+    fun duplicatePlaylist(playlistId: String, title: String? = null) {
+        val source = _playlists.value.find { it.id == playlistId } ?: return
+        val newId = "custom-${System.currentTimeMillis()}"
+        val defaultTitle = defaultDuplicateTitle(source.title)
+        val newTitle = cleanPlaylistTitle(title.orEmpty(), fallback = defaultTitle)
+        val duplicate = buildDuplicatePlaylist(
+            source = source,
+            newId = newId,
+            newTitle = newTitle,
+            createdAtEpochMs = System.currentTimeMillis()
+        )
+        libraryStore.upsertPlaylist(duplicate)
+        loadLibrary()
+    }
+
+    /** Open the Suno source URL of a URL-saved playlist in the system browser. */
+    fun openPlaylistSource(playlistId: String) {
+        val url = _playlists.value.find { it.id == playlistId }?.sourceUrl ?: return
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            getApplication<Application>().startActivity(intent)
+        } catch (e: Exception) {
+            _errorMessage.value = "No app available to open $url"
+        }
+    }
+
+    /** Share the Suno source URL of a URL-saved playlist via the share sheet. */
+    fun sharePlaylistSource(playlistId: String) {
+        val url = _playlists.value.find { it.id == playlistId }?.sourceUrl ?: return
+        try {
+            val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, url)
+            }
+            val chooser = Intent.createChooser(sendIntent, "Share playlist")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            getApplication<Application>().startActivity(chooser)
+        } catch (e: Exception) {
+            _errorMessage.value = "No app available to share this playlist"
+        }
+    }
+
     fun resyncMine() {
         if (!_cookieConfigured.value) {
             _syncStatus.value = SyncStatus.error("Configure your cookie first")

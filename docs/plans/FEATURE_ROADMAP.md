@@ -1,10 +1,11 @@
 # Suno Local Player — Feature Roadmap
 
 This document is a **plan only** for the batches that remain. **Batch 1
-(playback polish), Batch 2 (sync visibility & reliability), and Batch 3 (search
-/ filter) are implemented** — see the verification notes in their sections
-below. Each remaining batch is small enough to review, verify, commit, and push
-on its own. The current shipped surface is described in the project `README.md`.
+(playback polish), Batch 2 (sync visibility & reliability), Batch 3 (search /
+filter), and Batch 4 (playlist manager) are implemented** — see the
+verification notes in their sections below. Each remaining batch is small
+enough to review, verify, commit, and push on its own. The current shipped
+surface is described in the project `README.md`.
 
 > ⚠️ **Commit/push checkpoint language is for the planner/human maintainer.**
 > Executors working from these batches must **not** commit or push themselves;
@@ -113,17 +114,43 @@ bumped to `0.1.3-search-filter` (versionCode 4).
 
 **Goal:** full CRUD over playlists instead of create-only.
 
-- [ ] Rename and delete custom playlists (with confirm dialog).
-- [ ] Duplicate a playlist (copy track list into a new custom mix).
+- [x] Rename and delete custom playlists (with confirm dialog).
+- [x] Duplicate a playlist (copy track list into a new custom mix).
 - [ ] Drag-to-reorder tracks inside custom playlists (replacing the up/down buttons).
-- [ ] Playlist details: show source URL for URL-saved playlists; share/export the playlist link.
-- [ ] Keep `LibraryStore` as the single persistence layer.
+- [x] Playlist details: show source URL for URL-saved playlists; share/export the playlist link.
+- [x] Keep `LibraryStore` as the single persistence layer.
+
+**Implemented (2026-07-31).** Custom playlists can be renamed (text-input
+dialog) and deleted (confirm dialog showing the playlist title; deleting the
+open playlist returns to the playlist list). Any playlist — custom or
+URL-saved — can be duplicated into a new custom mix that copies the track list
+and order and rewrites each copied track's `playlistId` to the new `custom-…`
+id; the default name is `<title> Copy` and a dialog lets the user rename it
+before confirming. Playlist details now show the **Source URL** for URL-saved
+playlists with **Open in Suno** (`ACTION_VIEW` browser intent) and **Share**
+(`ACTION_SEND` chooser) actions — explicit user actions only, no silent
+network/install mutations. All mutations persist through `LibraryStore` via
+`upsertPlaylist` / `removePlaylist` (JSON schema unchanged, backward
+compatible), and `loadLibrary()` re-resolves the open selection so renames
+appear immediately. Pure helpers (`cleanPlaylistTitle`,
+`defaultDuplicateTitle`, `buildDuplicatePlaylist`) live in
+`PlaylistManagerHelpers.kt` with JVM tests in `PlaylistManagerHelpersTest.kt`.
+
+**Drag-to-reorder deferred.** True drag-and-drop was not added: the project
+policy is to prefer no new dependencies, and hand-rolled pointer-based
+drag reordering inside a `LazyColumn` (hover/scroll/auto-scroll edge cases,
+keyed-item swap animation, persistence timing) is risky without a vetted
+library. Instead the existing ↑/↓ move controls remain as an explicit reorder
+mode (the track-row hint now says "↑/↓ reorder this mix"), and order persists
+through `moveTrackInPlaylist` → `LibraryStore`. Revisit true drag in a later
+batch if a stable, dependency-light approach appears.
 
 **Verification**
 1. `./gradlew testDebugUnitTest assembleDebug` → BUILD SUCCESSFUL.
-2. Manual: rename/delete/duplicate/reorder on device; verify order survives app restart.
+2. Unit tests for the duplicate/rename helpers (pure functions over domain models).
+3. Manual: rename/delete/duplicate on device; verify reorder order survives app restart.
 
-**Checkpoint:** review diff → commit (`feat(playlists): manager — rename, delete, duplicate, drag reorder`) → push.
+**Checkpoint:** review diff → commit (`feat(playlists): manager — rename, delete, duplicate, source link`) → push.
 
 ---
 
