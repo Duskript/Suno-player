@@ -12,9 +12,9 @@ android {
         applicationId = "com.duskript.sunolocal"
         minSdk = 26
         targetSdk = 35
-        // Playlists-only hotfix release: versionCode 9, versionName 0.1.8-playlists-only.
-        versionCode = 9
-        versionName = "0.1.8-playlists-only"
+        // Foreground-service hotfix release: versionCode 10, versionName 0.1.9-sync-fgs-hotfix.
+        versionCode = 10
+        versionName = "0.1.9-sync-fgs-hotfix"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

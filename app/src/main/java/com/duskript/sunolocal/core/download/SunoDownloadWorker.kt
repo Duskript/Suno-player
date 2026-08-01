@@ -72,7 +72,7 @@ class SunoDownloadWorker(
                 return Result.success(workDataOf("message" to "Auto-sync skipped: login required"))
             }
 
-            setForeground(createForegroundInfo(if (autoSync) "Auto-syncing Suno playlists…" else "Starting sync\u2026"))
+            setForegroundIfAllowed(if (autoSync) "Auto-syncing Suno playlists…" else "Starting sync…")
 
             when (mode) {
                 MODE_MY_LIBRARY -> syncMyLibrary()
@@ -170,7 +170,7 @@ class SunoDownloadWorker(
                         "progress" to progress,
                         "message" to "Downloading ${track.title} ($completedTracks/$totalTracks)"
                     ))
-                    setForeground(createForegroundInfo("Downloading ${track.title} ($completedTracks/$totalTracks)"))
+                    setForegroundIfAllowed("Downloading ${track.title} ($completedTracks/$totalTracks)")
 
                     val downloadedFile = try {
                         apiClient.downloadTrack(track, musicDir)
@@ -276,7 +276,7 @@ class SunoDownloadWorker(
                     "progress" to progress,
                     "message" to "Downloading ${track.title} (${index + 1}/$totalTracks)"
                 ))
-                setForeground(createForegroundInfo("Downloading ${track.title} (${index + 1}/$totalTracks)"))
+                setForegroundIfAllowed("Downloading ${track.title} (${index + 1}/$totalTracks)")
 
                 val downloadedFile = try {
                     apiClient.downloadTrack(track, musicDir)
@@ -408,6 +408,21 @@ class SunoDownloadWorker(
             return e.httpCode == 0 && e.cause is java.io.IOException
         }
         return e is java.io.IOException
+    }
+
+    /**
+     * Promote to a foreground Worker only when Android allows it. Android 12+
+     * can reject WorkManager's SystemForegroundService with
+     * ForegroundServiceStartNotAllowedException / mAllowStartForeground=false
+     * depending on app/background state. That notification is nice-to-have;
+     * failing it must not abort playlist fetches or downloads.
+     */
+    private suspend fun setForegroundIfAllowed(message: String) {
+        try {
+            setForeground(createForegroundInfo(message))
+        } catch (e: Exception) {
+            Log.w(TAG, "Foreground sync notification unavailable; continuing without it: ${e.message}")
+        }
     }
 
     private fun createForegroundInfo(message: String): ForegroundInfo {
