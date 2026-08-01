@@ -59,6 +59,16 @@ class SunoDownloadWorker(
             refreshStoredWebViewCookieIfAvailable(autoSync)
             if (autoSync && !cookieStore.isConfigured()) {
                 Log.i(TAG, "Skipping auto-sync because no Suno cookie is configured")
+                syncSummaryStore.save(
+                    SyncSummary(
+                        finishedAtEpochMs = System.currentTimeMillis(),
+                        mode = mode,
+                        source = playlistUrl,
+                        success = false,
+                        message = "Auto-sync skipped: login required",
+                        error = COOKIE_EXPIRED_GUIDANCE
+                    )
+                )
                 return Result.success(workDataOf("message" to "Auto-sync skipped: login required"))
             }
 
@@ -343,6 +353,9 @@ class SunoDownloadWorker(
                         lyrics = track.lyrics,
                         stylePrompt = track.stylePrompt,
                         descriptionPrompt = track.descriptionPrompt,
+                        tags = track.tags,
+                        mood = track.mood,
+                        genre = track.genre,
                         downloadedAtEpochMs = track.downloadedAtEpochMs
                     )
                 }
@@ -360,6 +373,9 @@ class SunoDownloadWorker(
                         lyrics = remoteTrack.lyrics ?: existing.lyrics,
                         stylePrompt = remoteTrack.stylePrompt ?: existing.stylePrompt,
                         descriptionPrompt = remoteTrack.descriptionPrompt ?: existing.descriptionPrompt,
+                        tags = remoteTrack.tags.ifEmpty { existing.tags },
+                        mood = remoteTrack.mood ?: existing.mood,
+                        genre = remoteTrack.genre ?: existing.genre,
                         downloadedAtEpochMs = existing.downloadedAtEpochMs.takeIf { it > 0L }
                             ?: System.currentTimeMillis()
                     )

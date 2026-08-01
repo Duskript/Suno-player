@@ -12,9 +12,9 @@ android {
         applicationId = "com.duskript.sunolocal"
         minSdk = 26
         targetSdk = 35
-        // Batch 6 (export & backup) release: versionCode 7, versionName 0.1.6-export-backup.
-        versionCode = 7
-        versionName = "0.1.6-export-backup"
+        // Sync-library fix release: versionCode 8, versionName 0.1.7-sync-library-fix.
+        versionCode = 8
+        versionName = "0.1.7-sync-library-fix"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

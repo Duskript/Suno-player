@@ -468,8 +468,14 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun resyncMine() {
+        // Try to pick up an in-app WebView login before declaring the app
+        // unauthenticated. This prevents the common UX trap where the user logs
+        // into Suno, returns to Library, taps sync, and the old cookieConfigured
+        // state has not yet been refreshed.
+        captureWebViewCookie()
+
         if (!_cookieConfigured.value) {
-            _syncStatus.value = SyncStatus.error("Configure your cookie first")
+            _syncStatus.value = SyncStatus.error(COOKIE_EXPIRED_GUIDANCE)
             return
         }
 
