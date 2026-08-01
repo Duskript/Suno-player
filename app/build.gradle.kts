@@ -12,9 +12,9 @@ android {
         applicationId = "com.duskript.sunolocal"
         minSdk = 26
         targetSdk = 35
-        // Foreground-service hotfix release: versionCode 10, versionName 0.1.9-sync-fgs-hotfix.
-        versionCode = 10
-        versionName = "0.1.9-sync-fgs-hotfix"
+        // Download diagnostics hotfix release: versionCode 11, versionName 0.1.10-download-diagnostics.
+        versionCode = 11
+        versionName = "0.1.10-download-diagnostics"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

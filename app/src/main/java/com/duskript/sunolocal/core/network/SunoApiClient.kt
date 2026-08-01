@@ -172,7 +172,20 @@ class SunoApiClient(
                 sourceUrl = playlist.sourceUrl ?: "https://suno.com/playlist/${playlist.id}"
             ).copy(savedFromOtherCreator = playlist.savedFromOtherCreator, isCustom = playlist.isCustom)
         } catch (e: Exception) {
-            playlist
+            // Summary responses from /playlist/me often contain no track list.
+            // Returning an empty summary here makes sync look successful while
+            // downloading nothing. Only fall back when the summary itself already
+            // includes tracks; otherwise fail loudly so Settings shows the real
+            // endpoint/auth/parser problem.
+            if (playlist.tracks.isNotEmpty()) {
+                playlist
+            } else {
+                throw SunoApiException(
+                    "Failed to fetch tracks for playlist '${playlist.title}' (${playlist.id}): ${e.message ?: "unknown error"}",
+                    (e as? SunoApiException)?.httpCode ?: 0,
+                    e
+                )
+            }
         }
     }
 
@@ -346,8 +359,25 @@ class SunoApiClient(
         val id = firstNonBlank(json, "id", "clip_id", "song_id") ?: return null
         val title = firstNonBlank(json, "title", "name") ?: "Untitled"
         val metadata = json.optJSONObject("metadata")
-        val audioUrl = firstNonBlank(json, "audio_url", "audio_file", "stream_url", "mp3_url")
-            ?: metadata?.let { firstNonBlank(it, "audio_url", "audio_file", "stream_url", "mp3_url") }
+        val audioUrl = firstNonBlank(
+            json,
+            "audio_url",
+            "audio_file",
+            "stream_url",
+            "mp3_url",
+            "download_url",
+            "play_url"
+        ) ?: metadata?.let {
+            firstNonBlank(
+                it,
+                "audio_url",
+                "audio_file",
+                "stream_url",
+                "mp3_url",
+                "download_url",
+                "play_url"
+            )
+        }
         val imageUrl = firstNonBlank(json, "image_url", "cover_url", "image_large_url", "image_s", "image_path")
             ?: metadata?.let { firstNonBlank(it, "image_url", "cover_url", "image_large_url", "image_s", "image_path") }
         val durationMs = firstPositiveLong(json, "duration_ms")

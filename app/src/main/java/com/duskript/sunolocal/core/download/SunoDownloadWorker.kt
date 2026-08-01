@@ -129,6 +129,7 @@ class SunoDownloadWorker(
         val playlists = apiClient.fetchMyPlaylists().map { playlist ->
             playlist.mergeExistingDownloads(existingTracks)
         }
+        Log.i(TAG, "Fetched ${playlists.size} playlist(s) with ${playlists.sumOf { it.tracks.size }} track(s)")
         if (playlists.isEmpty()) {
             setProgress(workDataOf("progress" to 1f, "message" to "No playlists found"))
             syncSummaryStore.save(
@@ -154,6 +155,26 @@ class SunoDownloadWorker(
             totalTracks += playlist.tracks.size
         }
 
+        if (totalTracks == 0) {
+            val message = "No tracks found in ${playlists.size} playlist(s)"
+            Log.w(TAG, message)
+            setProgress(workDataOf("progress" to 1f, "message" to message))
+            syncSummaryStore.save(
+                SyncSummary(
+                    finishedAtEpochMs = System.currentTimeMillis(),
+                    mode = MODE_MY_LIBRARY,
+                    success = false,
+                    totalTracks = 0,
+                    downloadedCount = 0,
+                    skippedCount = 0,
+                    failedCount = 0,
+                    message = message,
+                    error = "Suno returned playlists but no tracks. Re-test connection, then try adding a specific playlist URL so we can isolate whether /playlist/me summaries or playlist detail endpoints changed."
+                )
+            )
+            return Result.failure(workDataOf("error" to message))
+        }
+
         for (playlist in playlists) {
             val syncedTracks = playlist.tracks.map { track ->
                 val progress = if (totalTracks > 0) completedTracks.toFloat() / totalTracks else 0f
@@ -175,7 +196,7 @@ class SunoDownloadWorker(
                     val downloadedFile = try {
                         apiClient.downloadTrack(track, musicDir)
                     } catch (e: Exception) {
-                        Log.w(TAG, "Failed to download track ${track.id}: ${e.message}")
+                        Log.w(TAG, "Failed to download track ${track.id} (${track.title}) from ${track.audioUrl ?: "cdn fallback"}: ${e.message}")
                         failedCount++
                         if (authError == null && isAuthFailure(e)) {
                             authError = COOKIE_EXPIRED_GUIDANCE

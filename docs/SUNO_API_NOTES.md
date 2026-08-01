@@ -59,6 +59,7 @@ __session=<jwt>; other_cookie=value
 - Playlist response shape includes `playlists` and `playlist_clips[].clip`; parsers should support both direct tracks and nested playlist clip wrappers.
 - Playlists saved from other profiles are not included by the default `show_sharelist=false` query; sync must also query `show_sharelist=true` and de-dupe by playlist id.
 - `/api/playlist/me` returns explicit playlists, not necessarily every generated song. Generated-song history lives behind `/api/feed/v3`, but importing it by default floods the local library with experiments; keep normal sync playlist-scoped unless a separate opt-in import flow is added.
+- Do not silently fall back from failed playlist detail fetches to empty playlist summaries; summary-only fallback makes sync appear successful while downloading zero tracks.
 - Other-profile playlist metadata/lyrics require the v2 playlist detail endpoint; summary/list responses may omit full `playlist_clips[].clip.metadata`.
 - Audio files may be served as MP3, WAV, OGG, or expiring CDN URLs depending on generation mode.
 - Android may reject WorkManager foreground-service promotion (`SystemForegroundService`, `mAllowStartForeground=false`) even for sync work; foreground notification setup must be best-effort so playlist fetch/download continues as normal WorkManager work.
