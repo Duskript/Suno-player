@@ -12,9 +12,9 @@ android {
         applicationId = "com.duskript.sunolocal"
         minSdk = 26
         targetSdk = 35
-        // Playlist endpoint priority hotfix release: versionCode 13, versionName 0.1.12-playlist-endpoint-priority.
-        versionCode = 13
-        versionName = "0.1.12-playlist-endpoint-priority"
+        // Playlist remove menu release: versionCode 14, versionName 0.1.13-playlist-remove-menu.
+        versionCode = 14
+        versionName = "0.1.13-playlist-remove-menu"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

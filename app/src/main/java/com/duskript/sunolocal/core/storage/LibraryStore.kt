@@ -18,6 +18,7 @@ import java.io.File
 class LibraryStore(context: Context) {
 
     private val libraryFile = File(context.filesDir, FILE_NAME)
+    private val hiddenPlaylistsFile = File(context.filesDir, HIDDEN_PLAYLISTS_FILE_NAME)
 
     /** Load all saved playlists from local storage. */
     fun loadPlaylists(): List<SunoPlaylistJson> = loadAll().toList()
@@ -77,6 +78,40 @@ class LibraryStore(context: Context) {
         persistAll(loadAll().filter { it.id != id })
     }
 
+    /** IDs of synced playlists the user removed from the local library. */
+    fun loadHiddenPlaylistIds(): Set<String> {
+        if (!hiddenPlaylistsFile.exists()) return emptySet()
+        return try {
+            val array = JSONArray(hiddenPlaylistsFile.readText())
+            (0 until array.length()).mapNotNull { i ->
+                array.optString(i).trim().takeIf { it.isNotBlank() && it != "null" }
+            }.toSet()
+        } catch (e: Exception) {
+            hiddenPlaylistsFile.delete()
+            emptySet()
+        }
+    }
+
+    /** Hide a synced playlist from future library resyncs and remove local metadata. */
+    fun hideSyncedPlaylist(id: String) {
+        val hidden = loadHiddenPlaylistIds().toMutableSet()
+        hidden.add(id)
+        persistHiddenPlaylistIds(hidden)
+        removePlaylist(id)
+    }
+
+    /** Make an explicitly re-added playlist eligible for future syncs again. */
+    fun unhidePlaylist(id: String) {
+        val hidden = loadHiddenPlaylistIds().toMutableSet()
+        if (hidden.remove(id)) persistHiddenPlaylistIds(hidden)
+    }
+
+    private fun persistHiddenPlaylistIds(ids: Set<String>) {
+        val array = JSONArray()
+        ids.sorted().forEach { array.put(it) }
+        hiddenPlaylistsFile.writeText(array.toString(2))
+    }
+
     /** Total number of saved playlists. */
     fun playlistCount(): Int = loadAll().size
 
@@ -104,6 +139,7 @@ class LibraryStore(context: Context) {
 
     companion object {
         private const val FILE_NAME = "suno_library.json"
+        private const val HIDDEN_PLAYLISTS_FILE_NAME = "suno_hidden_playlists.json"
     }
 }
 

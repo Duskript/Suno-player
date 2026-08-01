@@ -213,7 +213,9 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun loadLibrary() {
+        val hiddenPlaylistIds = libraryStore.loadHiddenPlaylistIds()
         val stored = libraryStore.loadPlaylists()
+            .filterNot { it.id in hiddenPlaylistIds && !it.isCustom }
         _playlists.value = stored.map { it.toDomain() }
         _selectedPlaylist.value?.let { current ->
             _selectedPlaylist.value = _playlists.value.find { it.id == current.id }
@@ -330,6 +332,17 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         if (_selectedPlaylist.value?.id == playlistId) {
             _selectedPlaylist.value = null
         }
+        loadLibrary()
+    }
+
+    /** Remove a synced playlist locally and keep it hidden across future Resync Library runs. */
+    fun removeSyncedPlaylistFromLibrary(playlistId: String) {
+        val playlist = _playlists.value.find { it.id == playlistId && !it.isCustom } ?: return
+        libraryStore.hideSyncedPlaylist(playlist.id)
+        if (_selectedPlaylist.value?.id == playlistId) {
+            _selectedPlaylist.value = null
+        }
+        _errorMessage.value = "Removed ${playlist.title} from Library. It will stay hidden during Resync Library."
         loadLibrary()
     }
 

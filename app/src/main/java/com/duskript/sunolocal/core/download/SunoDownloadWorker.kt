@@ -126,9 +126,10 @@ class SunoDownloadWorker(
         setProgress(workDataOf("progress" to 0f, "message" to "Fetching playlists\u2026"))
 
         val existingTracks = loadExistingTracksById()
-        val playlists = apiClient.fetchMyPlaylists().map { playlist ->
-            playlist.mergeExistingDownloads(existingTracks)
-        }
+        val hiddenPlaylistIds = libraryStore.loadHiddenPlaylistIds()
+        val playlists = apiClient.fetchMyPlaylists()
+            .filterNot { playlist -> playlist.id in hiddenPlaylistIds }
+            .map { playlist -> playlist.mergeExistingDownloads(existingTracks) }
         Log.i(TAG, "Fetched ${playlists.size} playlist(s) with ${playlists.sumOf { it.tracks.size }} track(s)")
         if (playlists.isEmpty()) {
             setProgress(workDataOf("progress" to 1f, "message" to "No playlists found"))
@@ -260,6 +261,7 @@ class SunoDownloadWorker(
 
         val existingTracks = loadExistingTracksById()
         val playlist = apiClient.fetchPlaylistFromUrl(url).mergeExistingDownloads(existingTracks)
+        libraryStore.unhidePlaylist(playlist.id)
         val totalTracks = playlist.tracks.size
 
         if (totalTracks == 0) {

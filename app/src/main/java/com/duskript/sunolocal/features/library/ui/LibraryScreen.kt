@@ -5,7 +5,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,6 +46,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -333,22 +337,29 @@ fun LibraryScreen(
         )
     }
 
-    // Batch 4 — delete custom playlist (confirm dialog with the playlist title).
+    // Playlist removal: custom mixes are deleted; synced playlists are hidden
+    // locally so Resync Library does not resurrect unwanted playlists.
     playlistToDelete?.let { target ->
+        val isCustom = target.isCustom
         AlertDialog(
             onDismissRequest = { playlistToDelete = null },
-            title = { Text("Delete Playlist?", fontWeight = FontWeight.Bold) },
+            title = { Text(if (isCustom) "Delete Playlist?" else "Remove Playlist?", fontWeight = FontWeight.Bold) },
             text = {
                 Text(
-                    text = "Delete \"${target.title}\"? This removes the custom mix and its track order. Downloaded tracks stay in your library.",
+                    text = if (isCustom) {
+                        "Delete \"${target.title}\"? This removes the custom mix and its track order. Downloaded tracks stay in your library."
+                    } else {
+                        "Remove \"${target.title}\" from this app? It will stay hidden during Resync Library. Downloaded audio files are left alone."
+                    },
                     style = MaterialTheme.typography.bodySmall
                 )
             },
             confirmButton = {
                 Button(onClick = {
-                    viewModel.deleteCustomPlaylist(target.id)
+                    if (isCustom) viewModel.deleteCustomPlaylist(target.id)
+                    else viewModel.removeSyncedPlaylistFromLibrary(target.id)
                     playlistToDelete = null
-                }) { Text("Delete") }
+                }) { Text(if (isCustom) "Delete" else "Remove") }
             },
             dismissButton = { TextButton(onClick = { playlistToDelete = null }) { Text("Cancel") } }
         )
@@ -892,6 +903,7 @@ private fun PlaylistListView(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PlaylistCard(
     playlist: SunoPlaylist,
@@ -904,12 +916,71 @@ private fun PlaylistCard(
     onShareSource: () -> Unit,
     onCreatorClick: (String) -> Unit
 ) {
+    var menuExpanded by remember { mutableStateOf(false) }
+
     Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = { menuExpanded = true }
+            ),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         shape = RoundedCornerShape(12.dp)
     ) {
+        Box(modifier = Modifier.fillMaxWidth()) {
+            DropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = { menuExpanded = false }
+            ) {
+                DropdownMenuItem(
+                    text = { Text("Play") },
+                    onClick = {
+                        menuExpanded = false
+                        onPlay()
+                    }
+                )
+                if (playlist.isCustom) {
+                    DropdownMenuItem(
+                        text = { Text("Rename") },
+                        onClick = {
+                            menuExpanded = false
+                            onRename()
+                        }
+                    )
+                }
+                DropdownMenuItem(
+                    text = { Text("Duplicate") },
+                    onClick = {
+                        menuExpanded = false
+                        onDuplicate()
+                    }
+                )
+                if (playlist.sourceUrl != null) {
+                    DropdownMenuItem(
+                        text = { Text("Open in Suno") },
+                        onClick = {
+                            menuExpanded = false
+                            onOpenSource()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Share") },
+                        onClick = {
+                            menuExpanded = false
+                            onShareSource()
+                        }
+                    )
+                }
+                DropdownMenuItem(
+                    text = { Text(if (playlist.isCustom) "Delete" else "Remove from Library") },
+                    onClick = {
+                        menuExpanded = false
+                        onDelete()
+                    }
+                )
+            }
+        }
         Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             PlaylistArt(playlist.tracks.firstOrNull()?.imageUrl, modifier = Modifier.size(56.dp))
             Spacer(modifier = Modifier.width(12.dp))
@@ -959,6 +1030,11 @@ private fun PlaylistCard(
                 )
             } else {
                 PlaylistManagerButton("Duplicate", onClick = onDuplicate)
+                PlaylistManagerButton(
+                    "Remove",
+                    onClick = onDelete,
+                    color = MaterialTheme.colorScheme.error
+                )
                 if (playlist.sourceUrl != null) {
                     PlaylistManagerButton("Open in Suno", onClick = onOpenSource)
                     PlaylistManagerButton("Share", onClick = onShareSource)
