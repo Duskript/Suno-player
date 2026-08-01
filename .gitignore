@@ -1,0 +1,27 @@
+# Gradle / Android build output
+.gradle/
+build/
+app/build/
+
+# Kotlin / IDE local state
+.kotlin/
+.idea/
+*.iml
+
+# Android local SDK config
+local.properties
+
+# Logs
+*.log
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Local proofs / screenshots generated during device QA
+build/proof/
+
+# Secrets / env
+.env
+.env.*
+!.env.example
