@@ -16,11 +16,15 @@ import com.duskript.sunolocal.core.network.SunoApiException
 import com.duskript.sunolocal.core.player.LocalAudioPlayer
 import com.duskript.sunolocal.core.storage.SunoPlaylistJson
 import com.duskript.sunolocal.core.storage.SunoTrackJson
+import com.duskript.sunolocal.core.storage.SyncSummaryStore
 import com.duskript.sunolocal.core.update.AppUpdateInfo
 import com.duskript.sunolocal.core.update.GitHubUpdateChecker
+import com.duskript.sunolocal.domain.model.COOKIE_EXPIRED_GUIDANCE
 import com.duskript.sunolocal.domain.model.SunoPlaylist
 import com.duskript.sunolocal.domain.model.SunoTrack
+import com.duskript.sunolocal.domain.model.SyncSummary
 import com.duskript.sunolocal.domain.model.SyncStatus
+import com.duskript.sunolocal.domain.model.isCookieAuthError
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -39,6 +43,7 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val cookieStore = CookieStore(application)
     private val apiClient = SunoApiClient(cookieStore = cookieStore)
     private val libraryStore = app.libraryStore
+    private val syncSummaryStore = SyncSummaryStore(application)
     val audioPlayer = LocalAudioPlayer(application)
 
     private val _playlists = MutableStateFlow<List<SunoPlaylist>>(emptyList())
@@ -49,6 +54,9 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
 
     private val _syncStatus = MutableStateFlow(SyncStatus.IDLE)
     val syncStatus: StateFlow<SyncStatus> = _syncStatus.asStateFlow()
+
+    private val _lastSyncSummary = MutableStateFlow<SyncSummary?>(null)
+    val lastSyncSummary: StateFlow<SyncSummary?> = _lastSyncSummary.asStateFlow()
 
     private val _cookieConfigured = MutableStateFlow(false)
     val cookieConfigured: StateFlow<Boolean> = _cookieConfigured.asStateFlow()
@@ -74,6 +82,12 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     init {
         refreshCookieStatus()
         loadLibrary()
+        refreshLastSyncSummary()
+    }
+
+    /** Reload the persisted last-sync summary (called on init and after sync work finishes). */
+    fun refreshLastSyncSummary() {
+        _lastSyncSummary.value = syncSummaryStore.load()
     }
 
     fun saveCookie(cookie: String) {
@@ -335,10 +349,15 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
                             _syncStatus.value = SyncStatus.IDLE.copy(lastMessage = successMessage)
                             onSuccess()
                             loadLibrary()
+                            refreshLastSyncSummary()
                         }
                         androidx.work.WorkInfo.State.FAILED -> {
-                            val error = workInfo.outputData.getString("error") ?: "Unknown error"
+                            val rawError = workInfo.outputData.getString("error") ?: "Unknown error"
+                            // Surface clear re-login guidance when the failure is a
+                            // cookie expiry (HTTP 401/403 or expired/unauthorized message).
+                            val error = if (isCookieAuthError(rawError)) COOKIE_EXPIRED_GUIDANCE else rawError
                             _syncStatus.value = SyncStatus.error(error)
+                            refreshLastSyncSummary()
                         }
                         else -> { /* enqueued, blocked, cancelled */ }
                     }

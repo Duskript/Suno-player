@@ -12,8 +12,12 @@ import com.duskript.sunolocal.SunoLocalApplication
 import com.duskript.sunolocal.core.auth.CookieStore
 import com.duskript.sunolocal.core.auth.WebViewCookieBridge
 import com.duskript.sunolocal.core.network.SunoApiClient
+import com.duskript.sunolocal.core.network.SunoApiException
+import com.duskript.sunolocal.core.storage.SyncSummaryStore
+import com.duskript.sunolocal.domain.model.COOKIE_EXPIRED_GUIDANCE
 import com.duskript.sunolocal.domain.model.SunoPlaylist
 import com.duskript.sunolocal.domain.model.SunoTrack
+import com.duskript.sunolocal.domain.model.SyncSummary
 import java.io.File
 
 /**
@@ -35,6 +39,7 @@ class SunoDownloadWorker(
     private val cookieStore = CookieStore(context)
     private val apiClient = SunoApiClient(cookieStore = cookieStore)
     private val libraryStore = app.libraryStore
+    private val syncSummaryStore = SyncSummaryStore(context)
 
     /** Directory where downloaded audio files are stored. */
     private val musicDir: File by lazy {
@@ -71,7 +76,28 @@ class SunoDownloadWorker(
             }
         } catch (e: Exception) {
             Log.e(TAG, "Download worker failed", e)
-            Result.failure(workDataOf("error" to (e.message ?: "Unknown error")))
+            val errorText = if (isAuthFailure(e)) {
+                COOKIE_EXPIRED_GUIDANCE
+            } else {
+                e.message ?: "Unknown error"
+            }
+            syncSummaryStore.save(
+                SyncSummary(
+                    finishedAtEpochMs = System.currentTimeMillis(),
+                    mode = mode,
+                    source = playlistUrl,
+                    success = false,
+                    message = "Sync failed",
+                    error = errorText
+                )
+            )
+            if (isTransientFailure(e)) {
+                // Likely network timeout/connection loss or HTTP 5xx — let WorkManager
+                // retry with its built-in exponential backoff policy.
+                Result.retry()
+            } else {
+                Result.failure(workDataOf("error" to errorText))
+            }
         }
     }
 
@@ -95,6 +121,14 @@ class SunoDownloadWorker(
         }
         if (playlists.isEmpty()) {
             setProgress(workDataOf("progress" to 1f, "message" to "No playlists found"))
+            syncSummaryStore.save(
+                SyncSummary(
+                    finishedAtEpochMs = System.currentTimeMillis(),
+                    mode = MODE_MY_LIBRARY,
+                    success = true,
+                    message = "No playlists found"
+                )
+            )
             return Result.success()
         }
 
@@ -102,6 +136,8 @@ class SunoDownloadWorker(
         var completedTracks = 0
         var downloadedCount = 0
         var skippedCount = 0
+        var failedCount = 0
+        var authError: String? = null
 
         playlists.forEach { playlist ->
             libraryStore.upsertPlaylist(playlist)
@@ -130,6 +166,10 @@ class SunoDownloadWorker(
                         apiClient.downloadTrack(track, musicDir)
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to download track ${track.id}: ${e.message}")
+                        failedCount++
+                        if (authError == null && isAuthFailure(e)) {
+                            authError = COOKIE_EXPIRED_GUIDANCE
+                        }
                         null
                     }
 
@@ -161,6 +201,25 @@ class SunoDownloadWorker(
         ))
         Log.i(TAG, "Sync complete: downloaded=$downloadedCount skipped=$skippedCount total=$totalTracks")
 
+        val syncMessage = if (authError != null) {
+            "Sync finished with $failedCount failed download(s)"
+        } else {
+            "Sync complete: $downloadedCount new, $skippedCount unchanged"
+        }
+        syncSummaryStore.save(
+            SyncSummary(
+                finishedAtEpochMs = System.currentTimeMillis(),
+                mode = MODE_MY_LIBRARY,
+                success = true,
+                totalTracks = totalTracks,
+                downloadedCount = downloadedCount,
+                skippedCount = skippedCount,
+                failedCount = failedCount,
+                message = syncMessage,
+                error = authError
+            )
+        )
+
         return Result.success()
     }
 
@@ -175,11 +234,22 @@ class SunoDownloadWorker(
         if (totalTracks == 0) {
             libraryStore.upsertPlaylist(playlist)
             setProgress(workDataOf("progress" to 1f, "message" to "No tracks found"))
+            syncSummaryStore.save(
+                SyncSummary(
+                    finishedAtEpochMs = System.currentTimeMillis(),
+                    mode = MODE_PLAYLIST_URL,
+                    source = url,
+                    success = true,
+                    message = "No tracks found"
+                )
+            )
             return Result.success()
         }
 
         var downloadedCount = 0
         var skippedCount = 0
+        var failedCount = 0
+        var authError: String? = null
 
         val syncedTracks = playlist.tracks.mapIndexed { index, track ->
             val progress = index.toFloat() / totalTracks
@@ -202,6 +272,10 @@ class SunoDownloadWorker(
                     apiClient.downloadTrack(track, musicDir)
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to download track ${track.id}: ${e.message}")
+                    failedCount++
+                    if (authError == null && isAuthFailure(e)) {
+                        authError = COOKIE_EXPIRED_GUIDANCE
+                    }
                     null
                 }
 
@@ -228,6 +302,26 @@ class SunoDownloadWorker(
             "message" to "Playlist sync complete: $downloadedCount new, $skippedCount unchanged"
         ))
         Log.i(TAG, "Playlist sync complete: downloaded=$downloadedCount skipped=$skippedCount total=$totalTracks")
+
+        val syncMessage = if (authError != null) {
+            "Playlist sync finished with $failedCount failed download(s)"
+        } else {
+            "Playlist sync complete: $downloadedCount new, $skippedCount unchanged"
+        }
+        syncSummaryStore.save(
+            SyncSummary(
+                finishedAtEpochMs = System.currentTimeMillis(),
+                mode = MODE_PLAYLIST_URL,
+                source = url,
+                success = true,
+                totalTracks = totalTracks,
+                downloadedCount = downloadedCount,
+                skippedCount = skippedCount,
+                failedCount = failedCount,
+                message = syncMessage,
+                error = authError
+            )
+        )
 
         return Result.success()
     }
@@ -280,6 +374,24 @@ class SunoDownloadWorker(
         val path = localPath?.takeIf { it.isNotBlank() && it != "null" } ?: return false
         val file = File(path)
         return file.exists() && file.length() > 0L
+    }
+
+    /** True when the exception means the Suno session cookie was rejected (HTTP 401/403). */
+    private fun isAuthFailure(e: Exception): Boolean =
+        e is SunoApiException && (e.httpCode == 401 || e.httpCode == 403)
+
+    /**
+     * True when the failure looks transient (network timeout/connection loss or
+     * HTTP 429/5xx) and WorkManager should retry with backoff. Auth failures
+     * (401/403), validation errors, and parse failures are not transient.
+     */
+    private fun isTransientFailure(e: Exception): Boolean {
+        if (e is SunoApiException) {
+            if (e.httpCode == 429 || e.httpCode >= 500) return true
+            // httpCode 0 wraps a low-level network error (e.g. timeout) as cause.
+            return e.httpCode == 0 && e.cause is java.io.IOException
+        }
+        return e is java.io.IOException
     }
 
     private fun createForegroundInfo(message: String): ForegroundInfo {

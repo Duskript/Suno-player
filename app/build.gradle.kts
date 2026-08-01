@@ -12,8 +12,8 @@ android {
         applicationId = "com.duskript.sunolocal"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.1.1-playback-polish"
+        versionCode = 3
+        versionName = "0.1.2-sync-status"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

@@ -68,6 +68,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.duskript.sunolocal.domain.model.SunoPlaylist
 import com.duskript.sunolocal.domain.model.SunoTrack
+import com.duskript.sunolocal.domain.model.SyncSummary
 import com.duskript.sunolocal.features.library.state.LibraryViewModel
 import com.duskript.sunolocal.shared.ui.ElevenLabsStylePlayer
 
@@ -84,6 +85,7 @@ fun LibraryScreen(
     val playlists by viewModel.playlists.collectAsState()
     val selectedPlaylist by viewModel.selectedPlaylist.collectAsState()
     val syncStatus by viewModel.syncStatus.collectAsState()
+    val lastSyncSummary by viewModel.lastSyncSummary.collectAsState()
     val cookieConfigured by viewModel.cookieConfigured.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
 
@@ -355,6 +357,7 @@ fun LibraryScreen(
                 LibraryControls(
                     shuffleEnabled = shuffleEnabled,
                     syncError = syncStatus.lastError,
+                    lastSyncSummary = lastSyncSummary,
                     onShuffle = viewModel::toggleShuffle,
                     onAddPlaylist = { showAddPlaylistDialog = true }
                 )
@@ -408,6 +411,7 @@ private fun CookieSetupCard(onSetCookie: () -> Unit) {
 private fun LibraryControls(
     shuffleEnabled: Boolean,
     syncError: String?,
+    lastSyncSummary: SyncSummary?,
     onShuffle: () -> Unit,
     onAddPlaylist: () -> Unit
 ) {
@@ -424,6 +428,9 @@ private fun LibraryControls(
                 )
             }
         }
+        lastSyncSummary?.let { summary ->
+            LastSyncCard(summary)
+        }
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -438,6 +445,48 @@ private fun LibraryControls(
             }
         }
     }
+}
+
+/** Compact last-sync status on the library page (full details live in Settings). */
+@Composable
+private fun LastSyncCard(summary: SyncSummary) {
+    val failed = summary.hasFailures
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (failed) MaterialTheme.colorScheme.errorContainer
+            else MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = if (summary.success) "Last sync: ${summary.timeLabel()}"
+                else "Last sync failed: ${summary.timeLabel()}",
+                style = MaterialTheme.typography.labelMedium,
+                color = if (failed) MaterialTheme.colorScheme.onErrorContainer
+                else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = buildSummaryLine(summary),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (failed) MaterialTheme.colorScheme.onErrorContainer
+                else MaterialTheme.colorScheme.onSurface
+            )
+            summary.error?.let { error ->
+                Text(
+                    text = error,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer
+                )
+            }
+        }
+    }
+}
+
+private fun buildSummaryLine(summary: SyncSummary): String = buildString {
+    append("${summary.downloadedCount} new")
+    append(" • ${summary.skippedCount} unchanged")
+    if (summary.failedCount > 0) append(" • ${summary.failedCount} failed")
 }
 
 @Composable

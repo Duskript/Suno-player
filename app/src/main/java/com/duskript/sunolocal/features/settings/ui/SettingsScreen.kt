@@ -53,6 +53,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.duskript.sunolocal.BuildConfig
+import com.duskript.sunolocal.domain.model.COOKIE_EXPIRED_GUIDANCE
+import com.duskript.sunolocal.domain.model.SyncSummary
+import com.duskript.sunolocal.domain.model.isCookieAuthError
 import com.duskript.sunolocal.features.library.state.LibraryViewModel
 
 private const val TAG = "SunoLoginWebView"
@@ -75,6 +78,7 @@ fun SettingsScreen(
     val cookieStatus by viewModel.cookieStatus.collectAsState()
     val connectionTestStatus by viewModel.connectionTestStatus.collectAsState()
     val syncStatus by viewModel.syncStatus.collectAsState()
+    val lastSyncSummary by viewModel.lastSyncSummary.collectAsState()
     val updateInfo by viewModel.updateInfo.collectAsState()
     val updateCheckRunning by viewModel.updateCheckRunning.collectAsState()
     val context = LocalContext.current
@@ -222,12 +226,27 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
             }
+
+            // Last sync result — persisted by SunoDownloadWorker, survives restarts.
+            lastSyncSummary?.let { summary ->
+                Spacer(modifier = Modifier.height(12.dp))
+                LastSyncResultSection(summary)
+            }
+
             Spacer(modifier = Modifier.height(12.dp))
             OutlinedButton(
                 onClick = { viewModel.resyncMine() },
                 enabled = !syncStatus.isRunning
             ) {
                 Text("Resync Library")
+            }
+            if (!syncStatus.isRunning && syncStatus.lastError != null) {
+                Text(
+                    text = "Last sync failed — tap Resync Library to try again.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -505,4 +524,56 @@ private fun InfoRow(label: String, value: String) {
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
+}
+
+/** Detailed last-sync result shown under Settings → Library Sync. */
+@Composable
+private fun LastSyncResultSection(summary: SyncSummary) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        InfoRow("Last sync", summary.timeLabel())
+        InfoRow("Mode", modeLabel(summary.mode))
+        InfoRow(
+            "Result",
+            when {
+                !summary.success -> "Failed"
+                summary.failedCount > 0 -> "Partial — some downloads failed"
+                else -> "Success"
+            }
+        )
+        InfoRow(
+            "Tracks",
+            "${summary.totalTracks} total — ${summary.downloadedCount} new, " +
+                "${summary.skippedCount} unchanged" +
+                (if (summary.failedCount > 0) ", ${summary.failedCount} failed" else "")
+        )
+        if (summary.source != null) InfoRow("Source", summary.source)
+        Text(
+            text = summary.message,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        summary.error?.let { error ->
+            Spacer(modifier = Modifier.height(4.dp))
+            if (isCookieAuthError(error)) {
+                Text(
+                    text = COOKIE_EXPIRED_GUIDANCE,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.error
+                )
+            } else {
+                Text(
+                    text = "Error — $error",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+        }
+    }
+}
+
+private fun modeLabel(mode: String): String = when (mode) {
+    "my_library" -> "My Library"
+    "playlist_url" -> "Playlist URL"
+    else -> mode
 }

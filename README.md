@@ -10,6 +10,7 @@ An Android-native (Kotlin / Jetpack Compose) app for downloading Suno playlists 
 - **Save public playlists** — tap **+** and choose *Playlist URL* to save any public Suno playlist or creator URL; choose *Local playlist* to create a named mix from your downloaded tracks.
 - **Update checker** — Settings → Updates compares the installed version against the latest GitHub release of [Duskript/Suno-player](https://github.com/Duskript/Suno-player/releases) and opens the release page in your browser when a newer build exists.
 - **Persistent local library** — metadata and downloaded file paths are stored in app-private JSON.
+- **Sync status & reliability** — the last sync result (time, counts, failures) persists across restarts and is shown on the Library page and in Settings → Library Sync; transient network failures retry automatically via WorkManager, and expired cookies surface re-login guidance.
 
 ## Architecture
 
@@ -20,11 +21,13 @@ com.duskript.sunolocal/
 │   ├── download/SunoDownloadWorker.kt  — WorkManager background sync
 │   ├── network/SunoApiClient.kt  — Suno unofficial API client
 │   ├── player/LocalAudioPlayer.kt — Media3 ExoPlayer wrapper
-│   └── storage/LibraryStore.kt   — JSON-based local library persistence
+│   ├── storage/LibraryStore.kt   — JSON-based local library persistence
+│   └── storage/SyncSummaryStore.kt — persisted last-sync result (suno_last_sync.json)
 ├── domain/model/
 │   ├── SunoTrack.kt
 │   ├── SunoPlaylist.kt
-│   └── SyncStatus.kt
+│   ├── SyncStatus.kt
+│   └── SyncSummary.kt
 ├── features/
 │   ├── library/
 │   │   ├── state/LibraryViewModel.kt
@@ -54,7 +57,7 @@ com.duskript.sunolocal/
    ```
 4. Install the APK on your device/emulator (API 26+).
 
-> **Current build:** `0.1.1-playback-polish` (versionCode 2) — builds with JDK 17+ and Android SDK platform 35 via the Gradle wrapper. Requires JDK 17+ (Android Gradle Plugin 8.7) and the corresponding SDK platform.
+> **Current build:** `0.1.2-sync-status` (versionCode 3) — builds with JDK 17+ and Android SDK platform 35 via the Gradle wrapper. Requires JDK 17+ (Android Gradle Plugin 8.7) and the corresponding SDK platform.
 
 ## Suno API Status
 
