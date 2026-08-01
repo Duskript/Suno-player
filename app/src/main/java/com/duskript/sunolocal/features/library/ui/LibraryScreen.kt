@@ -91,6 +91,11 @@ fun LibraryScreen(
     val isPlaying by viewModel.audioPlayer.isPlaying.collectAsState()
     val shuffleEnabled by viewModel.audioPlayer.shuffleEnabled.collectAsState()
     val queue by viewModel.audioPlayer.queue.collectAsState()
+    val playbackPositionMs by viewModel.playbackPositionMs.collectAsState()
+    val playbackDurationMs by viewModel.playbackDurationMs.collectAsState()
+    val playbackProgress by viewModel.playbackProgress.collectAsState()
+    val repeatMode by viewModel.repeatMode.collectAsState()
+    val playbackErrorMessage by viewModel.playbackErrorMessage.collectAsState()
 
     var showCookieDialog by remember { mutableStateOf(false) }
     var cookieInput by remember { mutableStateOf("") }
@@ -274,6 +279,19 @@ fun LibraryScreen(
         )
     }
 
+    // Playback error heads-up: surfaced from Media3 (corrupt/missing file, etc.).
+    // Dismissible — never blocks app controls; dismissing clears the error state.
+    playbackErrorMessage?.let { message ->
+        AlertDialog(
+            onDismissRequest = { viewModel.clearPlaybackError() },
+            title = { Text("Playback issue", fontWeight = FontWeight.Bold) },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = { viewModel.clearPlaybackError() }) { Text("OK") }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -308,11 +326,16 @@ fun LibraryScreen(
                 currentTrack = currentTrack,
                 isPlaying = isPlaying,
                 shuffleEnabled = shuffleEnabled,
-                progress = 0f,
+                progress = playbackProgress,
+                positionMs = playbackPositionMs,
+                durationMs = playbackDurationMs,
+                repeatMode = repeatMode,
                 onPlayPause = { viewModel.playPause() },
                 onNext = { viewModel.next() },
                 onPrevious = { viewModel.previous() },
                 onToggleShuffle = { viewModel.toggleShuffle() },
+                onToggleRepeat = { viewModel.toggleRepeatMode() },
+                onSeekProgress = { viewModel.seekToProgress(it) },
                 onTrackClick = { showQueueSheet = true }
             )
         },

@@ -1,6 +1,6 @@
 # Suno Local Player
 
-An Android-native (Kotlin / Jetpack Compose) MVP for downloading Suno playlists and tracks for offline playback. Styled with an ElevenLabs-inspired dark audio player surface.
+An Android-native (Kotlin / Jetpack Compose) app for downloading Suno playlists and tracks for offline playback, with a playback-polish pass over the ElevenLabs-inspired dark audio player surface.
 
 ## Features
 
@@ -54,7 +54,7 @@ com.duskript.sunolocal/
    ```
 4. Install the APK on your device/emulator (API 26+).
 
-> **⚠️ Current build status:** Building on this host is blocked until JDK 17+, the Android SDK (platform 35), and the Gradle wrapper are provisioned. The project references Android Gradle Plugin 8.7 which requires JDK 17, and compileSdk 35 requires the corresponding SDK platform. `./gradlew assembleDebug` will fail until these are installed. This is an Android project and cannot be built on plain Linux without the Android SDK toolchain.
+> **Current build:** `0.1.1-playback-polish` (versionCode 2) — builds with JDK 17+ and Android SDK platform 35 via the Gradle wrapper. Requires JDK 17+ (Android Gradle Plugin 8.7) and the corresponding SDK platform.
 
 ## Suno API Status
 

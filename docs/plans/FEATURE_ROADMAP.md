@@ -1,9 +1,9 @@
 # Suno Local Player — Feature Roadmap
 
-This document is a **plan only**. Batches are listed in the order they should be
-implemented. Each batch is small enough to review, verify, commit, and push on
-its own. Nothing in this document is implemented yet — the current shipped
-surface is described in the project `README.md`.
+This document is a **plan only** for the batches that remain. **Batch 1
+(playback polish) is implemented** — see the verification note in its section
+below. Each remaining batch is small enough to review, verify, commit, and push
+on its own. The current shipped surface is described in the project `README.md`.
 
 > ⚠️ **Commit/push checkpoint language is for the planner/human maintainer.**
 > Executors working from these batches must **not** commit or push themselves;
@@ -15,11 +15,23 @@ surface is described in the project `README.md`.
 
 **Goal:** make the player feel like a real music app, not a demo.
 
-- [ ] Seek bar in the bottom player (drag to scrub), driven by Media3 position/duration.
-- [ ] Show track duration and elapsed time in the player row.
-- [ ] Repeat modes (off / all / one) in addition to shuffle.
-- [ ] Playback error surface: if a local file is missing/corrupt, show a clear message and auto-skip to the next playable track.
-- [ ] Keep queue/lyrics/details flows unchanged.
+- [x] Seek bar in the bottom player (drag to scrub), driven by Media3 position/duration.
+- [x] Show track duration and elapsed time in the player row.
+- [x] Repeat modes (off / all / one) in addition to shuffle.
+- [x] Playback error surface: if a local file is missing/corrupt, show a clear message and auto-skip to the next playable track.
+- [x] Keep queue/lyrics/details flows unchanged.
+
+**Implemented (2026-07-31).** The bottom player now has a scrub-capable Slider
+fed by `LocalAudioPlayer.playbackPositionMs/playbackDurationMs/playbackProgress`
+(refreshed on a lightweight main-thread Handler, torn down in `release()`),
+elapsed/total time labels (`m:ss`), and a repeat button cycling
+Off → Repeat All → Repeat One → Off via `Player.REPEAT_MODE_*`. Media3
+`Player.Listener.onPlayerError` surfaces a dismissible "Playback error on
+<track>" dialog (with `errorCodeName` detail) and auto-skips to the next media
+item; a per-session set of failed media item ids prevents infinite skip loops on
+fully-corrupt queues. Queue/lyrics/details, Media3 background playback via
+SunoPlaybackService, the resume fix, Settings resync/update checker, WebView
+login, cookie auto-sync, and playlist sync are untouched.
 
 **Verification**
 1. `export JAVA_HOME="$HOME/.local/jdks/jdk-17" ANDROID_HOME="$HOME/Android/Sdk" ANDROID_SDK_ROOT="$HOME/Android/Sdk" PATH="$HOME/.local/jdks/jdk-17/bin:$HOME/Android/Sdk/platform-tools:$HOME/Android/Sdk/cmdline-tools/latest/bin:$PATH"; ./gradlew testDebugUnitTest assembleDebug` → BUILD SUCCESSFUL.

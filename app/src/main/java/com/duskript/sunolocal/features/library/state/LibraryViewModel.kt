@@ -390,6 +390,17 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     fun next() = audioPlayer.next()
     fun previous() = audioPlayer.previous()
 
+    // Playback polish (Batch 1): position/duration/seek/repeat/error surface.
+    val playbackPositionMs: StateFlow<Long> = audioPlayer.playbackPositionMs
+    val playbackDurationMs: StateFlow<Long> = audioPlayer.playbackDurationMs
+    val playbackProgress: StateFlow<Float> = audioPlayer.playbackProgress
+    val repeatMode: StateFlow<Int> = audioPlayer.repeatMode
+    val playbackErrorMessage: StateFlow<String?> = audioPlayer.playbackErrorMessage
+
+    fun seekToProgress(progress: Float) = audioPlayer.seekToProgress(progress)
+    fun toggleRepeatMode() = audioPlayer.toggleRepeatMode()
+    fun clearPlaybackError() = audioPlayer.clearPlaybackError()
+
     override fun onCleared() {
         super.onCleared()
         audioPlayer.release()
