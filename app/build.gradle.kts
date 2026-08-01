@@ -12,9 +12,9 @@ android {
         applicationId = "com.duskript.sunolocal"
         minSdk = 26
         targetSdk = 35
-        // Playlist remove menu release: versionCode 14, versionName 0.1.13-playlist-remove-menu.
-        versionCode = 14
-        versionName = "0.1.13-playlist-remove-menu"
+        // Background playback keepalive hotfix release: versionCode 15, versionName 0.1.14-background-playback-keepalive.
+        versionCode = 15
+        versionName = "0.1.14-background-playback-keepalive"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

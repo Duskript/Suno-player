@@ -3,6 +3,7 @@ package com.duskript.sunolocal.core.player
 import android.content.Context
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 
@@ -40,6 +41,21 @@ object SunoPlaybackEngine {
             .setId("suno-local-playback")
             .build()
             .also { mediaSessionInstance = it }
+    }
+
+    /** True while audio should survive service/activity churn. */
+    fun shouldKeepPlaybackAlive(): Boolean {
+        val player = playerInstance ?: return false
+        return player.isPlaying ||
+            player.playWhenReady ||
+            player.playbackState == Player.STATE_BUFFERING ||
+            player.playbackState == Player.STATE_READY
+    }
+
+    /** Release only when the shared player is idle/ended, never during active playback. */
+    fun releaseIfIdle() {
+        if (shouldKeepPlaybackAlive()) return
+        release()
     }
 
     fun release() {
