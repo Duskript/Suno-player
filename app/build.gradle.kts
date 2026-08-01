@@ -12,9 +12,9 @@ android {
         applicationId = "com.duskript.sunolocal"
         minSdk = 26
         targetSdk = 35
-        // Download diagnostics hotfix release: versionCode 11, versionName 0.1.10-download-diagnostics.
-        versionCode = 11
-        versionName = "0.1.10-download-diagnostics"
+        // Playlist detail parser hotfix release: versionCode 12, versionName 0.1.11-playlist-detail-parser.
+        versionCode = 12
+        versionName = "0.1.11-playlist-detail-parser"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

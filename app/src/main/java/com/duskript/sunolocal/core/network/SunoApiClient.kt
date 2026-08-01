@@ -113,7 +113,15 @@ class SunoApiClient(
         val playlistId = extractPlaylistId(url)
             ?: throw SunoApiException("Could not extract playlist ID from URL: $url", 400)
 
-        fetchPlaylistDetail(playlistId, sourceUrl = url)
+        fetchPlaylistDetail(
+            playlistId = playlistId,
+            sourceUrl = url,
+            fallbackPlaylist = SunoPlaylist(
+                id = playlistId,
+                title = "Suno Playlist",
+                sourceUrl = url
+            )
+        )
     }
 
     /** Probe the authenticated user's playlist endpoint. HTTP 200 means the stored cookie is usable. */
@@ -169,7 +177,8 @@ class SunoApiClient(
         return try {
             fetchPlaylistDetail(
                 playlistId = playlist.id,
-                sourceUrl = playlist.sourceUrl ?: "https://suno.com/playlist/${playlist.id}"
+                sourceUrl = playlist.sourceUrl ?: "https://suno.com/playlist/${playlist.id}",
+                fallbackPlaylist = playlist
             ).copy(savedFromOtherCreator = playlist.savedFromOtherCreator, isCustom = playlist.isCustom)
         } catch (e: Exception) {
             // Summary responses from /playlist/me often contain no track list.
@@ -189,7 +198,11 @@ class SunoApiClient(
         }
     }
 
-    private fun fetchPlaylistDetail(playlistId: String, sourceUrl: String): SunoPlaylist {
+    private fun fetchPlaylistDetail(
+        playlistId: String,
+        sourceUrl: String,
+        fallbackPlaylist: SunoPlaylist
+    ): SunoPlaylist {
         var page = 1
         var totalResults: Int? = null
         var merged: SunoPlaylist? = null
@@ -203,7 +216,7 @@ class SunoApiClient(
                 throw apiFailure("Failed to fetch playlist $playlistId", response.code, response.message, body)
             }
 
-            val pagePlaylist = parseSinglePlaylist(body, sourceUrl)
+            val pagePlaylist = parseSinglePlaylist(body, sourceUrl, fallbackPlaylist)
             if (merged == null) merged = pagePlaylist
             allTracks += pagePlaylist.tracks
             totalResults = parsePlaylistTrackTotal(body) ?: totalResults
@@ -249,18 +262,26 @@ class SunoApiClient(
         return PlaylistPage(playlists = playlists, totalResults = totalResults)
     }
 
-    private fun parseSinglePlaylist(json: String, sourceUrl: String): SunoPlaylist {
+    private fun parseSinglePlaylist(
+        json: String,
+        sourceUrl: String,
+        fallbackPlaylist: SunoPlaylist
+    ): SunoPlaylist {
         val root = JSONObject(json)
         val playlistJson = when {
-            root.has("playlist") -> root.getJSONObject("playlist")
+            root.has("playlist") && root.get("playlist") is JSONObject -> root.getJSONObject("playlist")
             root.has("data") && root.get("data") is JSONObject -> root.getJSONObject("data")
             else -> root
         }
-        val base = parsePlaylistJson(playlistJson) ?: throw SunoApiException("Failed to parse playlist JSON", 0)
+        val base = parsePlaylistJson(playlistJson) ?: fallbackPlaylist
 
         val tracksJson = when {
             root.has("tracks") -> root.getJSONArray("tracks")
             root.has("clips") -> root.getJSONArray("clips")
+            root.has("playlist_clips") -> root.getJSONArray("playlist_clips")
+            root.has("data") && root.get("data") is JSONObject && root.getJSONObject("data").has("tracks") -> root.getJSONObject("data").getJSONArray("tracks")
+            root.has("data") && root.get("data") is JSONObject && root.getJSONObject("data").has("clips") -> root.getJSONObject("data").getJSONArray("clips")
+            root.has("data") && root.get("data") is JSONObject && root.getJSONObject("data").has("playlist_clips") -> root.getJSONObject("data").getJSONArray("playlist_clips")
             playlistJson.has("tracks") -> playlistJson.getJSONArray("tracks")
             playlistJson.has("clips") -> playlistJson.getJSONArray("clips")
             playlistJson.has("playlist_clips") -> playlistJson.getJSONArray("playlist_clips")
@@ -272,7 +293,10 @@ class SunoApiClient(
         }
 
         return base.copy(
-            tracks = tracks.ifEmpty { base.tracks },
+            id = base.id.ifBlank { fallbackPlaylist.id },
+            title = base.title.ifBlank { fallbackPlaylist.title },
+            creatorName = base.creatorName ?: fallbackPlaylist.creatorName,
+            tracks = tracks.ifEmpty { base.tracks.ifEmpty { fallbackPlaylist.tracks } },
             sourceUrl = sourceUrl,
             savedFromOtherCreator = true,
             isCustom = false
