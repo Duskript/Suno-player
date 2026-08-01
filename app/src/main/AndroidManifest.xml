@@ -55,6 +55,21 @@
         </service>
 
         <!--
+            v0.1.15 — pause playback when a wired/Bluetooth audio route is
+            unplugged. ACTION_AUDIO_BECOMING_NOISY is exempt from the Android 8+
+            implicit-broadcast manifest restrictions, so a static receiver works
+            on minSdk 26. The receiver only pauses an existing player; it never
+            creates playback from scratch.
+        -->
+        <receiver
+            android:name=".core.player.AudioNoisyReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.media.AUDIO_BECOMING_NOISY" />
+            </intent-filter>
+        </receiver>
+
+        <!--
             WorkManager's SystemForegroundService must declare an explicit
             foregroundServiceType for targetSdk 35. Without this merge entry,
             Android throws InvalidForegroundServiceTypeException as soon as a

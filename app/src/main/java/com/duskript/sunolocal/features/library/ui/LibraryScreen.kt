@@ -41,6 +41,8 @@ import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -84,9 +86,11 @@ import com.duskript.sunolocal.domain.model.SunoTrack
 import com.duskript.sunolocal.domain.model.SyncSummary
 import com.duskript.sunolocal.features.library.state.LibraryPlaylistFilter
 import com.duskript.sunolocal.features.library.state.LibraryViewModel
+import com.duskript.sunolocal.features.library.state.TrackFilter
 import com.duskript.sunolocal.features.library.state.defaultDuplicateTitle
 import com.duskript.sunolocal.features.library.state.filterPlaylists
 import com.duskript.sunolocal.features.library.state.filterTracks
+import com.duskript.sunolocal.features.library.state.isSmartMixId
 import com.duskript.sunolocal.features.library.state.playlistsByCreator
 import com.duskript.sunolocal.features.library.state.similarTracks
 import com.duskript.sunolocal.features.library.state.trackMetadataLine
@@ -107,12 +111,16 @@ fun LibraryScreen(
     onNavigateToSettings: () -> Unit
 ) {
     val playlists by viewModel.playlists.collectAsState()
+    val storedPlaylists by viewModel.storedPlaylists.collectAsState()
     val selectedPlaylist by viewModel.selectedPlaylist.collectAsState()
     val selectedCreator by viewModel.selectedCreator.collectAsState()
     val syncStatus by viewModel.syncStatus.collectAsState()
     val lastSyncSummary by viewModel.lastSyncSummary.collectAsState()
     val cookieConfigured by viewModel.cookieConfigured.collectAsState()
     val errorMessage by viewModel.errorMessage.collectAsState()
+    // v0.1.15 — favorites, resume snapshot, and hidden-playlist restore state.
+    val favoriteTrackIds by viewModel.favoriteTrackIds.collectAsState()
+    val lastPlaybackState by viewModel.lastPlaybackState.collectAsState()
 
     val currentTrack by viewModel.audioPlayer.currentTrack.collectAsState()
     val isPlaying by viewModel.audioPlayer.isPlaying.collectAsState()
@@ -173,10 +181,15 @@ fun LibraryScreen(
     var playlistSearchQuery by remember { mutableStateOf("") }
     var playlistFilter by remember { mutableStateOf(LibraryPlaylistFilter.ALL) }
     var trackSearchQuery by remember { mutableStateOf("") }
+    // v0.1.15 — track-level filter chips (All / Favorites / Not downloaded).
+    var trackFilter by remember { mutableStateOf(TrackFilter.ALL) }
 
     // Track search applies per-playlist: reset it whenever the open playlist
     // changes (including returning to the playlist list page).
-    LaunchedEffect(selectedPlaylist?.id) { trackSearchQuery = "" }
+    LaunchedEffect(selectedPlaylist?.id) {
+        trackSearchQuery = ""
+        trackFilter = TrackFilter.ALL
+    }
 
     // Batch 5 — flat, deduped library track list for the local "Similar
     // tracks" heuristic (no network; derived from in-memory playlists).
@@ -403,10 +416,13 @@ fun LibraryScreen(
         // kicks in for tracks opened outside the selected playlist, e.g. a
         // similar track from another playlist or a creator-view track, where
         // the playlist-scoped playTrack would silently no-op.
+        // v0.1.15 — the detail dialog also carries the star/favorite control.
         val inSelectedPlaylist = selectedPlaylist?.tracks?.any { it.id == track.id } == true
         TrackDetailDialog(
             track = track,
             allTracks = allTracks,
+            isFavorite = track.id in favoriteTrackIds,
+            onToggleFavorite = { viewModel.toggleFavoriteTrack(track.id) },
             onDismiss = { selectedTrackDetails = null },
             onPlay = {
                 if (inSelectedPlaylist) {
@@ -545,6 +561,11 @@ fun LibraryScreen(
                     shuffleEnabled = shuffleEnabled,
                     syncError = syncStatus.lastError,
                     lastSyncSummary = lastSyncSummary,
+                    // v0.1.15 — download health line: stored playlists only
+                    // (smart mixes are derived, not synced).
+                    playlistCount = storedPlaylists.size,
+                    totalTrackCount = storedPlaylists.sumOf { it.trackCount },
+                    downloadedTrackCount = storedPlaylists.sumOf { it.downloadedTrackCount },
                     onShuffle = viewModel::toggleShuffle,
                     onAddPlaylist = { showAddPlaylistDialog = true }
                 )
@@ -561,6 +582,18 @@ fun LibraryScreen(
                 }
             )
 
+            // v0.1.15 — Resume where left off: shown only when a saved playback
+            // snapshot exists and nothing is currently loaded in the player.
+            if (lastPlaybackState != null && currentTrack == null) {
+                ResumePlaybackCard(
+                    trackTitle = lastPlaybackState?.trackId?.let { trackId ->
+                        allTracks.firstOrNull { it.id == trackId }?.title
+                    },
+                    positionMs = lastPlaybackState?.positionMs ?: 0L,
+                    onResume = viewModel::resumeLastPlayback
+                )
+            }
+
             val selected = selectedPlaylist
             val creator = selectedCreator
             when {
@@ -570,6 +603,8 @@ fun LibraryScreen(
                     creatorName = creator,
                     creatorPlaylists = playlistsByCreator(playlists, creator),
                     tracks = tracksByCreator(playlists, creator),
+                    favoriteTrackIds = favoriteTrackIds,
+                    onToggleFavorite = viewModel::toggleFavoriteTrack,
                     onBack = viewModel::clearCreatorSelection,
                     onPlaylistClick = { playlistId ->
                         viewModel.selectPlaylist(playlistId)
@@ -583,6 +618,10 @@ fun LibraryScreen(
                     playlist = selected,
                     trackSearchQuery = trackSearchQuery,
                     onTrackSearchQueryChange = { trackSearchQuery = it },
+                    favoriteTrackIds = favoriteTrackIds,
+                    trackFilter = trackFilter,
+                    onTrackFilterChange = { trackFilter = it },
+                    onToggleFavorite = viewModel::toggleFavoriteTrack,
                     customPlaylists = playlists.filter { it.isCustom },
                     onBack = viewModel::clearSelection,
                     onPlayTrack = viewModel::playTrack,
@@ -672,6 +711,10 @@ private fun LibraryControls(
     shuffleEnabled: Boolean,
     syncError: String?,
     lastSyncSummary: SyncSummary?,
+    // v0.1.15 — download health line counts (stored library only).
+    playlistCount: Int,
+    totalTrackCount: Int,
+    downloadedTrackCount: Int,
     onShuffle: () -> Unit,
     onAddPlaylist: () -> Unit
 ) {
@@ -689,7 +732,12 @@ private fun LibraryControls(
             }
         }
         lastSyncSummary?.let { summary ->
-            LastSyncCard(summary)
+            LastSyncCard(
+                summary = summary,
+                playlistCount = playlistCount,
+                totalTrackCount = totalTrackCount,
+                downloadedTrackCount = downloadedTrackCount
+            )
         }
         Row(
             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
@@ -734,7 +782,12 @@ private fun BackupActionsRow(
 
 /** Compact last-sync status on the library page (full details live in Settings). */
 @Composable
-private fun LastSyncCard(summary: SyncSummary) {
+private fun LastSyncCard(
+    summary: SyncSummary,
+    playlistCount: Int,
+    totalTrackCount: Int,
+    downloadedTrackCount: Int
+) {
     val failed = summary.hasFailures
     Card(
         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
@@ -750,6 +803,19 @@ private fun LastSyncCard(summary: SyncSummary) {
                 style = MaterialTheme.typography.labelMedium,
                 color = if (failed) MaterialTheme.colorScheme.onErrorContainer
                 else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            // v0.1.15 — download health line: "N playlists • N tracks • N downloaded • N failed".
+            Text(
+                text = buildHealthLine(
+                    playlistCount = playlistCount,
+                    totalTrackCount = totalTrackCount,
+                    downloadedTrackCount = downloadedTrackCount,
+                    failedCount = summary.failedCount
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.SemiBold,
+                color = if (failed) MaterialTheme.colorScheme.onErrorContainer
+                else MaterialTheme.colorScheme.onSurface
             )
             Text(
                 text = buildSummaryLine(summary),
@@ -772,6 +838,80 @@ private fun buildSummaryLine(summary: SyncSummary): String = buildString {
     append("${summary.downloadedCount} new")
     append(" • ${summary.skippedCount} unchanged")
     if (summary.failedCount > 0) append(" • ${summary.failedCount} failed")
+}
+
+/**
+ * v0.1.15 — compact download-health line for the Library page and the Settings
+ * download-health card. Failed count comes from the last sync summary (per-track
+ * failure lists are not tracked, so the line stays honest).
+ */
+private fun buildHealthLine(
+    playlistCount: Int,
+    totalTrackCount: Int,
+    downloadedTrackCount: Int,
+    failedCount: Int
+): String = buildString {
+    append("$playlistCount playlists")
+    append(" • $totalTrackCount tracks")
+    append(" • $downloadedTrackCount downloaded")
+    if (failedCount > 0) append(" • $failedCount failed")
+}
+
+/**
+ * v0.1.15 — Resume where left off card. Shown on the Library page after a
+ * restart when a saved playback snapshot exists and nothing is loaded yet.
+ * Tapping Resume rebuilds the queue from the current library and seeks near
+ * the saved position (see LibraryViewModel.resumeLastPlayback). Playback never
+ * starts automatically — the user always taps Resume.
+ */
+@Composable
+private fun ResumePlaybackCard(
+    trackTitle: String?,
+    positionMs: Long,
+    onResume: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                Icons.Filled.PlayArrow,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Resume where you left off",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+                Text(
+                    text = trackTitle?.let { "\"$it\" at ${formatPosition(positionMs)}" }
+                        ?: "Continue the last queue",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Button(onClick = onResume) { Text("Resume") }
+        }
+    }
+}
+
+/** mm:ss label for a millisecond position, used by the Resume card. */
+private fun formatPosition(positionMs: Long): String {
+    val totalSeconds = (positionMs / 1000).coerceAtLeast(0L)
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return "%d:%02d".format(minutes, seconds)
 }
 
 @Composable
@@ -985,8 +1125,15 @@ private fun PlaylistCard(
             PlaylistArt(playlist.tracks.firstOrNull()?.imageUrl, modifier = Modifier.size(56.dp))
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
+                // v0.1.15 — smart mixes get a "Smart mix" suffix so users can
+                // tell derived lists (favorites/recent/streaming) from stored
+                // playlists at a glance.
                 Text(
-                    text = if (playlist.isCustom) "${playlist.title}  •  Custom" else playlist.title,
+                    text = when {
+                        playlist.isCustom -> "${playlist.title}  •  Custom"
+                        isSmartMixId(playlist.id) -> "${playlist.title}  •  Smart mix"
+                        else -> playlist.title
+                    },
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
@@ -1064,6 +1211,11 @@ private fun TrackListView(
     playlist: SunoPlaylist,
     trackSearchQuery: String,
     onTrackSearchQueryChange: (String) -> Unit,
+    // v0.1.15 — favorites + track filter chips.
+    favoriteTrackIds: Set<String>,
+    trackFilter: TrackFilter,
+    onTrackFilterChange: (TrackFilter) -> Unit,
+    onToggleFavorite: (String) -> Unit,
     customPlaylists: List<SunoPlaylist>,
     onBack: () -> Unit,
     onPlayTrack: (String) -> Unit,
@@ -1083,7 +1235,14 @@ private fun TrackListView(
 ) {
     // Batch 3 — pure search over the playlist's own tracks. Persistence and the
     // original track ids used by move/remove actions are untouched.
-    val filteredTracks = filterTracks(playlist.tracks, trackSearchQuery)
+    // v0.1.15 — the filter chips (All / Favorites / Not downloaded) combine
+    // with the query in the pure filterTracks helper.
+    val filteredTracks = filterTracks(
+        tracks = playlist.tracks,
+        query = trackSearchQuery,
+        favoriteTrackIds = favoriteTrackIds,
+        filter = trackFilter
+    )
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -1166,10 +1325,34 @@ private fun TrackListView(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                 shape = RoundedCornerShape(8.dp)
             )
+            // v0.1.15 — track filter chips: All / Favorites / Not downloaded.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = trackFilter == TrackFilter.ALL,
+                    onClick = { onTrackFilterChange(TrackFilter.ALL) },
+                    label = { Text("All") }
+                )
+                FilterChip(
+                    selected = trackFilter == TrackFilter.FAVORITES,
+                    onClick = { onTrackFilterChange(TrackFilter.FAVORITES) },
+                    label = { Text("Favorites") }
+                )
+                FilterChip(
+                    selected = trackFilter == TrackFilter.NOT_DOWNLOADED,
+                    onClick = { onTrackFilterChange(TrackFilter.NOT_DOWNLOADED) },
+                    label = { Text("Not downloaded") }
+                )
+            }
         }
         if (filteredTracks.isEmpty()) {
             // Search hid everything (an empty playlist shows nothing extra).
-            if (trackSearchQuery.isNotBlank()) {
+            if (trackSearchQuery.isNotBlank() || trackFilter != TrackFilter.ALL) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("No tracks match", style = MaterialTheme.typography.titleMedium)
                 }
@@ -1185,6 +1368,8 @@ private fun TrackListView(
                         track = track,
                         isCustomPlaylist = playlist.isCustom,
                         customPlaylists = customPlaylists,
+                        isFavorite = track.id in favoriteTrackIds,
+                        onToggleFavorite = { onToggleFavorite(track.id) },
                         onClick = { onShowTrackDetails(track) },
                         onPlay = { onPlayTrack(track.id) },
                         onAddToQueue = { onAddToQueue(track) },
@@ -1205,6 +1390,9 @@ private fun TrackRow(
     track: SunoTrack,
     isCustomPlaylist: Boolean,
     customPlaylists: List<SunoPlaylist>,
+    // v0.1.15 — star/favorite control on every track row.
+    isFavorite: Boolean,
+    onToggleFavorite: () -> Unit,
     onClick: () -> Unit,
     onPlay: () -> Unit,
     onAddToQueue: () -> Unit,
@@ -1283,6 +1471,15 @@ private fun TrackRow(
                 }
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                // v0.1.15 — star control; works for any synced/custom track and
+                // persists via FavoritesStore (never mutates Suno API data).
+                IconButton(onClick = onToggleFavorite) {
+                    Icon(
+                        imageVector = if (isFavorite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                        contentDescription = if (isFavorite) "Unfavorite ${track.title}" else "Favorite ${track.title}",
+                        tint = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 IconButton(onClick = onPlay, enabled = track.isPlayable) {
                     Icon(Icons.Filled.PlayArrow, contentDescription = "Play ${track.title}")
                 }
@@ -1308,6 +1505,9 @@ private fun TrackRow(
 private fun TrackDetailDialog(
     track: SunoTrack,
     allTracks: List<SunoTrack>,
+    // v0.1.15 — star/favorite control in the detail dialog.
+    isFavorite: Boolean,
+    onToggleFavorite: () -> Unit,
     onDismiss: () -> Unit,
     onPlay: () -> Unit,
     onAddToQueue: () -> Unit,
@@ -1321,7 +1521,22 @@ private fun TrackDetailDialog(
         onDismissRequest = onDismiss,
         title = {
             Column {
-                Text(track.title, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        track.title,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(onClick = onToggleFavorite) {
+                        Icon(
+                            imageVector = if (isFavorite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                            contentDescription = if (isFavorite) "Unfavorite ${track.title}" else "Favorite ${track.title}",
+                            tint = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
                 // Tappable creator name opens the local Creator view.
                 val creator = track.creatorName
                 Text(
@@ -1537,6 +1752,9 @@ private fun CreatorView(
     creatorName: String,
     creatorPlaylists: List<SunoPlaylist>,
     tracks: List<SunoTrack>,
+    // v0.1.15 — star control on creator-view track rows too.
+    favoriteTrackIds: Set<String>,
+    onToggleFavorite: (String) -> Unit,
     onBack: () -> Unit,
     onPlaylistClick: (String) -> Unit,
     onPlayTrack: (String) -> Unit,
@@ -1590,6 +1808,8 @@ private fun CreatorView(
                 items(tracks, key = { "tr-${it.id}" }) { track ->
                     CreatorTrackRow(
                         track = track,
+                        isFavorite = track.id in favoriteTrackIds,
+                        onToggleFavorite = { onToggleFavorite(track.id) },
                         onClick = { onShowTrackDetails(track) },
                         onPlay = { onPlayTrack(track.id) },
                         onAddToQueue = { onAddToQueue(track) }
@@ -1650,6 +1870,8 @@ private fun CreatorPlaylistRow(
 @Composable
 private fun CreatorTrackRow(
     track: SunoTrack,
+    isFavorite: Boolean,
+    onToggleFavorite: () -> Unit,
     onClick: () -> Unit,
     onPlay: () -> Unit,
     onAddToQueue: () -> Unit
@@ -1680,6 +1902,13 @@ private fun CreatorTrackRow(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+            }
+            IconButton(onClick = onToggleFavorite) {
+                Icon(
+                    imageVector = if (isFavorite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                    contentDescription = if (isFavorite) "Unfavorite ${track.title}" else "Favorite ${track.title}",
+                    tint = if (isFavorite) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
             IconButton(onClick = onPlay, enabled = track.isPlayable) {
                 Icon(Icons.Filled.PlayArrow, contentDescription = "Play ${track.title}")

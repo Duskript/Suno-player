@@ -12,9 +12,11 @@ android {
         applicationId = "com.duskript.sunolocal"
         minSdk = 26
         targetSdk = 35
-        // Background playback keepalive hotfix release: versionCode 15, versionName 0.1.14-background-playback-keepalive.
-        versionCode = 15
-        versionName = "0.1.14-background-playback-keepalive"
+        // Roadmap upgrade bundle: versionCode 16, versionName 0.1.15-roadmap-upgrades.
+        // Adds favorites, smart mixes, resume playback, download health, hidden
+        // playlist restore, audio-becoming-noisy pause, and track filter chips.
+        versionCode = 16
+        versionName = "0.1.15-roadmap-upgrades"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

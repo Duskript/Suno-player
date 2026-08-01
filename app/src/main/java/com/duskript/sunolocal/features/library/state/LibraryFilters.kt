@@ -47,6 +47,20 @@ fun filterPlaylists(
 }
 
 /**
+ * Track-level filter chips for a playlist's track list (v0.1.15).
+ */
+enum class TrackFilter {
+    /** Every track matching the search query. */
+    ALL,
+
+    /** Only favorited tracks ([SunoTrack.id] in the favorites set). */
+    FAVORITES,
+
+    /** Only tracks without a downloaded local file (streaming/not downloaded). */
+    NOT_DOWNLOADED
+}
+
+/**
  * Filters [tracks] by [query], matching trimmed and case-insensitively against
  * track title, creator name, lyrics, style prompt, and description prompt.
  * Null metadata fields are skipped safely. A blank/whitespace query returns
@@ -61,5 +75,35 @@ fun filterTracks(tracks: List<SunoTrack>, query: String): List<SunoTrack> {
             track.lyrics?.contains(needle, ignoreCase = true) == true ||
             track.stylePrompt?.contains(needle, ignoreCase = true) == true ||
             track.descriptionPrompt?.contains(needle, ignoreCase = true) == true
+    }
+}
+
+/**
+ * Filters [tracks] by [query] AND [filter] (v0.1.15). Query matching is the
+ * same as [filterTracks]; the filter additionally keeps only favorited tracks
+ * ([TrackFilter.FAVORITES]) or only not-downloaded tracks
+ * ([TrackFilter.NOT_DOWNLOADED]). Defaults preserve the legacy behaviour so
+ * existing call sites and tests are unchanged.
+ */
+fun filterTracks(
+    tracks: List<SunoTrack>,
+    query: String,
+    favoriteTrackIds: Set<String>,
+    filter: TrackFilter
+): List<SunoTrack> {
+    val needle = query.trim()
+    return tracks.filter { track ->
+        val matchesQuery = needle.isEmpty() ||
+            track.title.contains(needle, ignoreCase = true) ||
+            track.creatorName?.contains(needle, ignoreCase = true) == true ||
+            track.lyrics?.contains(needle, ignoreCase = true) == true ||
+            track.stylePrompt?.contains(needle, ignoreCase = true) == true ||
+            track.descriptionPrompt?.contains(needle, ignoreCase = true) == true
+        val matchesFilter = when (filter) {
+            TrackFilter.ALL -> true
+            TrackFilter.FAVORITES -> track.id in favoriteTrackIds
+            TrackFilter.NOT_DOWNLOADED -> !track.isDownloaded
+        }
+        matchesQuery && matchesFilter
     }
 }

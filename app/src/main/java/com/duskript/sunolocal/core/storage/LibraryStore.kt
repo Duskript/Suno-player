@@ -106,6 +106,15 @@ class LibraryStore(context: Context) {
         if (hidden.remove(id)) persistHiddenPlaylistIds(hidden)
     }
 
+    /**
+     * Clear every hidden-playlist removal (v0.1.15 restore tool). The removed
+     * playlist records themselves were deleted from the library when hidden, so
+     * the caller should guide the user to run Resync Library to bring them back.
+     */
+    fun clearHiddenPlaylists() {
+        persistHiddenPlaylistIds(emptySet())
+    }
+
     private fun persistHiddenPlaylistIds(ids: Set<String>) {
         val array = JSONArray()
         ids.sorted().forEach { array.put(it) }

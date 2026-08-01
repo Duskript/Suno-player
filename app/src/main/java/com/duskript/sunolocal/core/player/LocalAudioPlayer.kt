@@ -26,11 +26,17 @@ import kotlinx.coroutines.flow.asStateFlow
  * progress), repeat-mode cycling, and playback-error surfacing with an
  * auto-skip to the next playable item. Position/duration/progress are refreshed
  * on player events, while playing, and after seeks via a main-looper runnable.
+ *
+ * Resume where left off (v0.1.15): meaningful playback events (queue changes,
+ * play/pause, seek, media transitions) plus a throttled ~5s cadence while
+ * playing persist a PlaybackState snapshot via PlaybackStateStore so the
+ * Library page can offer a Resume card after an app restart.
  */
 class LocalAudioPlayer(context: Context) {
 
     private val appContext = context.applicationContext
     private val exoPlayer: ExoPlayer = SunoPlaybackEngine.player(appContext)
+    private val playbackStateStore = PlaybackStateStore(appContext)
 
     private val _currentTrack = MutableStateFlow<SunoTrack?>(null)
     val currentTrack: StateFlow<SunoTrack?> = _currentTrack.asStateFlow()
@@ -72,6 +78,13 @@ class LocalAudioPlayer(context: Context) {
     private val positionRefreshRunnable = object : Runnable {
         override fun run() {
             updatePlaybackPosition()
+            // Throttled resume-state persistence: the tick counter fires every
+            // 10th 500ms run (~5s) while the runnable is active, so we never
+            // write a JSON file on every position refresh.
+            positionTicks++
+            if (positionTicks % POSITION_PERSIST_EVERY_N_TICKS == 0) {
+                persistPlaybackState()
+            }
             mainHandler.postDelayed(this, POSITION_REFRESH_INTERVAL_MS)
         }
     }
@@ -81,11 +94,13 @@ class LocalAudioPlayer(context: Context) {
             _isPlaying.value = isPlaying
             syncStateFromPlayer()
             updatePlaybackPosition()
+            persistPlaybackState()
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             syncStateFromPlayer()
             updatePlaybackPosition()
+            persistPlaybackState()
         }
 
         override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
@@ -114,6 +129,9 @@ class LocalAudioPlayer(context: Context) {
             updatePlaybackPosition()
         }
     }
+
+    /** Tick counter for the ~5s throttled resume-state persistence. */
+    private var positionTicks = 0
 
     init {
         SunoPlaybackEngine.mediaSession(appContext)
@@ -146,6 +164,7 @@ class LocalAudioPlayer(context: Context) {
         }
         syncStateFromPlayer()
         updatePlaybackPosition()
+        persistPlaybackState()
     }
 
     fun addToQueue(track: SunoTrack) {
@@ -159,6 +178,7 @@ class LocalAudioPlayer(context: Context) {
             _currentTrack.value = track
         }
         syncStateFromPlayer()
+        persistPlaybackState()
     }
 
     fun playQueueTrack(trackId: String) {
@@ -170,6 +190,7 @@ class LocalAudioPlayer(context: Context) {
         exoPlayer.play()
         _currentTrack.value = _queue.value[index]
         updatePlaybackPosition()
+        persistPlaybackState()
     }
 
     fun removeFromQueue(trackId: String) {
@@ -183,10 +204,12 @@ class LocalAudioPlayer(context: Context) {
         exoPlayer.removeMediaItem(index)
         if (current.isEmpty()) {
             _currentTrack.value = null
+            playbackStateStore.clear()
         } else if (_currentTrack.value?.id == trackId) {
             _currentTrack.value = current.getOrNull(exoPlayer.currentMediaItemIndex.coerceIn(0, current.lastIndex))
         }
         syncStateFromPlayer()
+        persistPlaybackState()
     }
 
     fun moveQueuedTrack(trackId: String, direction: Int) {
@@ -214,18 +237,21 @@ class LocalAudioPlayer(context: Context) {
         }
         syncStateFromPlayer()
         updatePlaybackPosition()
+        persistPlaybackState()
     }
 
     fun next() {
         syncStateFromPlayer()
         exoPlayer.seekToNextMediaItem()
         updatePlaybackPosition()
+        persistPlaybackState()
     }
 
     fun previous() {
         syncStateFromPlayer()
         exoPlayer.seekToPreviousMediaItem()
         updatePlaybackPosition()
+        persistPlaybackState()
     }
 
     fun toggleShuffle() {
@@ -242,6 +268,7 @@ class LocalAudioPlayer(context: Context) {
         if (duration <= 0 || duration == C.TIME_UNSET) return
         exoPlayer.seekTo((duration * clamped).toLong())
         updatePlaybackPosition()
+        persistPlaybackState()
     }
 
     /** Cycles repeat mode: Off → Repeat All → Repeat One → Off. */
@@ -262,6 +289,7 @@ class LocalAudioPlayer(context: Context) {
     fun seekTo(positionMs: Long) {
         exoPlayer.seekTo(positionMs)
         updatePlaybackPosition()
+        persistPlaybackState()
     }
 
     fun currentPositionMs(): Long = exoPlayer.currentPosition
@@ -274,6 +302,26 @@ class LocalAudioPlayer(context: Context) {
         mainHandler.removeCallbacks(positionRefreshRunnable)
         // Intentionally do not release ExoPlayer here; releasing on ViewModel clear
         // kills background playback when the Activity is recreated or backgrounded.
+    }
+
+    /**
+     * Persists the resume snapshot (track, source playlist, position, queue
+     * ids). No-op while nothing is loaded or the queue is empty, so a stale
+     * session is never overwritten by an idle player.
+     */
+    private fun persistPlaybackState() {
+        val current = _currentTrack.value ?: return
+        val queueIds = _queue.value.map { it.id }
+        if (queueIds.isEmpty()) return
+        playbackStateStore.save(
+            PlaybackState(
+                trackId = current.id,
+                playlistId = current.playlistId,
+                positionMs = exoPlayer.currentPosition.coerceAtLeast(0L),
+                queueIds = queueIds,
+                updatedAtEpochMs = System.currentTimeMillis()
+            )
+        )
     }
 
     /**
@@ -316,6 +364,7 @@ class LocalAudioPlayer(context: Context) {
             }
         }
         updatePlaybackPosition()
+        persistPlaybackState()
     }
 
     private fun syncStateFromPlayer() {
@@ -365,6 +414,9 @@ class LocalAudioPlayer(context: Context) {
             MediaMetadata.Builder()
                 .setTitle(title)
                 .setArtist(creatorName)
+                // Album helps lockscreen/notification grouping for a playlist
+                // context; "Suno Local" keeps it stable when creator is unknown.
+                .setAlbumTitle(creatorName ?: "Suno Local")
                 .setArtworkUri(imageUrl?.let { android.net.Uri.parse(it) })
                 .build()
         )
@@ -379,5 +431,6 @@ class LocalAudioPlayer(context: Context) {
 
     private companion object {
         const val POSITION_REFRESH_INTERVAL_MS = 500L
+        const val POSITION_PERSIST_EVERY_N_TICKS = 10
     }
 }

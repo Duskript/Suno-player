@@ -14,6 +14,9 @@ import com.duskript.sunolocal.core.download.SunoDownloadWorker
 import com.duskript.sunolocal.core.network.SunoApiClient
 import com.duskript.sunolocal.core.network.SunoApiException
 import com.duskript.sunolocal.core.player.LocalAudioPlayer
+import com.duskript.sunolocal.core.player.PlaybackState
+import com.duskript.sunolocal.core.player.PlaybackStateStore
+import com.duskript.sunolocal.core.storage.FavoritesStore
 import com.duskript.sunolocal.core.storage.ImportResult
 import com.duskript.sunolocal.core.storage.LibraryBackup
 import com.duskript.sunolocal.core.storage.LibraryBackupException
@@ -47,13 +50,34 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val apiClient = SunoApiClient(cookieStore = cookieStore)
     private val libraryStore = app.libraryStore
     private val syncSummaryStore = SyncSummaryStore(application)
+    private val favoritesStore = FavoritesStore(application)
+    private val playbackStateStore = PlaybackStateStore(application)
     val audioPlayer = LocalAudioPlayer(application)
+
+    /**
+     * Stored (persisted) playlists only — the source of truth for stats and
+     * smart-mix derivation. [playlists] additionally merges derived smart mixes
+     * on top so they behave like normal playlists in the UI.
+     */
+    private val _storedPlaylists = MutableStateFlow<List<SunoPlaylist>>(emptyList())
+    val storedPlaylists: StateFlow<List<SunoPlaylist>> = _storedPlaylists.asStateFlow()
 
     private val _playlists = MutableStateFlow<List<SunoPlaylist>>(emptyList())
     val playlists: StateFlow<List<SunoPlaylist>> = _playlists.asStateFlow()
 
     private val _selectedPlaylist = MutableStateFlow<SunoPlaylist?>(null)
     val selectedPlaylist: StateFlow<SunoPlaylist?> = _selectedPlaylist.asStateFlow()
+
+    // v0.1.15 — favorites/starred tracks, persisted app-private as JSON.
+    private val _favoriteTrackIds = MutableStateFlow(favoritesStore.loadFavoriteTrackIds())
+    val favoriteTrackIds: StateFlow<Set<String>> = _favoriteTrackIds.asStateFlow()
+
+    // v0.1.15 — resume-where-left-off snapshot + hidden-playlist restore count.
+    private val _lastPlaybackState = MutableStateFlow(playbackStateStore.load())
+    val lastPlaybackState: StateFlow<PlaybackState?> = _lastPlaybackState.asStateFlow()
+
+    private val _hiddenPlaylistCount = MutableStateFlow(libraryStore.loadHiddenPlaylistIds().size)
+    val hiddenPlaylistCount: StateFlow<Int> = _hiddenPlaylistCount.asStateFlow()
 
     // Batch 5 — creator browsing is local-only navigation state: selecting a
     // creator name shows their playlists/tracks from the in-memory library.
@@ -216,10 +240,78 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         val hiddenPlaylistIds = libraryStore.loadHiddenPlaylistIds()
         val stored = libraryStore.loadPlaylists()
             .filterNot { it.id in hiddenPlaylistIds && !it.isCustom }
-        _playlists.value = stored.map { it.toDomain() }
+            .map { it.toDomain() }
+        _storedPlaylists.value = stored
+        _hiddenPlaylistCount.value = hiddenPlaylistIds.size
+        recomputePlaylists()
+    }
+
+    /**
+     * Rebuilds the displayed playlist list = derived smart mixes (favorites,
+     * recently added, streaming-only) on top of the stored library. Smart mixes
+     * are never written to suno_library.json; the open selection is re-resolved
+     * so details pages survive recomposition.
+     */
+    private fun recomputePlaylists() {
+        val hiddenPlaylistIds = libraryStore.loadHiddenPlaylistIds()
+        val smartMixes = buildSmartMixes(_storedPlaylists.value, _favoriteTrackIds.value)
+            .filterNot { it.id in hiddenPlaylistIds }
+        _playlists.value = smartMixes + _storedPlaylists.value
         _selectedPlaylist.value?.let { current ->
             _selectedPlaylist.value = _playlists.value.find { it.id == current.id }
         }
+    }
+
+    // v0.1.15 — favorites/starred tracks.
+
+    /** True when [trackId] is currently favorited. */
+    fun isFavoriteTrack(trackId: String): Boolean = trackId in _favoriteTrackIds.value
+
+    /** Toggle the star on [trackId]; persists immediately to FavoritesStore. */
+    fun toggleFavoriteTrack(trackId: String) {
+        val favorite = trackId !in _favoriteTrackIds.value
+        favoritesStore.setFavoriteTrack(trackId, favorite)
+        _favoriteTrackIds.value = favoritesStore.loadFavoriteTrackIds()
+        // Smart mixes (smart-favorites) depend on the favorites set.
+        recomputePlaylists()
+    }
+
+    // v0.1.15 — playlist cleanup restore.
+
+    /**
+     * Clear every hidden-playlist removal so hidden synced playlists are
+     * eligible to come back on the next Resync Library.
+     */
+    fun restoreHiddenPlaylists() {
+        libraryStore.clearHiddenPlaylists()
+        _hiddenPlaylistCount.value = 0
+        _errorMessage.value = "Hidden playlist removals cleared — tap Resync Library to bring them back."
+        loadLibrary()
+    }
+
+    // v0.1.15 — resume where left off.
+
+    /**
+     * Rebuilds the queue from the saved [PlaybackState]: resolves queue track
+     * ids against the current library, starts at the saved track, seeks near
+     * the saved position, then plays. Safe no-op when tracks are missing or the
+     * queue is empty; never auto-plays without the user tapping Resume.
+     */
+    fun resumeLastPlayback() {
+        val state = _lastPlaybackState.value ?: return
+        val allTracks = _playlists.value.asSequence()
+            .flatMap { it.tracks.asSequence() }
+            .distinctBy { it.id }
+            .toList()
+        val byId = allTracks.associateBy { it.id }
+        val target = byId[state.trackId] ?: return
+        val queueIds = state.queueIds.takeIf { it.isNotEmpty() && state.trackId in it }
+            ?: listOf(state.trackId)
+        val queue = queueIds.mapNotNull { byId[it] }.filter { it.isPlayable }
+        if (queue.isEmpty()) return
+        audioPlayer.setQueue(queue, startTrackId = target.id)
+        audioPlayer.seekTo(state.positionMs.coerceAtLeast(0L))
+        audioPlayer.playPause()
     }
 
     fun selectPlaylist(playlistId: String) {

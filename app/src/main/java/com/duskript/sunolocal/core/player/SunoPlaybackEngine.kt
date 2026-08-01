@@ -35,6 +35,15 @@ object SunoPlaybackEngine {
             .also { playerInstance = it }
     }
 
+    /**
+     * The process-wide player only when one already exists, or null.
+     *
+     * Used by lightweight receivers (e.g. AudioNoisyReceiver on headset
+     * unplug) that must react to an existing playback session without ever
+     * constructing a player from scratch.
+     */
+    fun currentPlayerOrNull(): ExoPlayer? = playerInstance
+
     fun mediaSession(context: Context): MediaSession {
         val appContext = context.applicationContext
         return mediaSessionInstance ?: MediaSession.Builder(appContext, player(appContext))

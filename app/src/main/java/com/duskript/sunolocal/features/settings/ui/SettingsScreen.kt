@@ -81,6 +81,9 @@ fun SettingsScreen(
     val lastSyncSummary by viewModel.lastSyncSummary.collectAsState()
     val updateInfo by viewModel.updateInfo.collectAsState()
     val updateCheckRunning by viewModel.updateCheckRunning.collectAsState()
+    // v0.1.15 — download health + hidden-playlist restore state.
+    val storedPlaylists by viewModel.storedPlaylists.collectAsState()
+    val hiddenPlaylistCount by viewModel.hiddenPlaylistCount.collectAsState()
     val context = LocalContext.current
     var showCookieDialog by remember { mutableStateOf(false) }
     var showSunoLogin by remember { mutableStateOf(false) }
@@ -233,6 +236,17 @@ fun SettingsScreen(
                 LastSyncResultSection(summary)
             }
 
+            // v0.1.15 — download health dashboard: honest totals from the stored
+            // library plus the last sync's failed/unchanged counts. Per-track
+            // failure lists are not tracked, so nothing is invented here.
+            Spacer(modifier = Modifier.height(16.dp))
+            DownloadHealthSection(
+                playlistCount = storedPlaylists.size,
+                totalTrackCount = storedPlaylists.sumOf { it.trackCount },
+                downloadedTrackCount = storedPlaylists.sumOf { it.downloadedTrackCount },
+                lastSyncSummary = lastSyncSummary
+            )
+
             Spacer(modifier = Modifier.height(12.dp))
             OutlinedButton(
                 onClick = { viewModel.resyncMine() },
@@ -248,6 +262,32 @@ fun SettingsScreen(
                     modifier = Modifier.padding(top = 8.dp)
                 )
             }
+
+            // v0.1.15 — playlist cleanup restore tool.
+            Spacer(modifier = Modifier.height(16.dp))
+            SectionHeader("Hidden playlists")
+            Text(
+                text = if (hiddenPlaylistCount > 0) {
+                    "$hiddenPlaylistCount playlist(s) were removed from the Library and stay hidden during Resync Library."
+                } else {
+                    "No playlists are hidden. Removing a synced playlist from the Library hides it here."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { viewModel.restoreHiddenPlaylists() },
+                enabled = hiddenPlaylistCount > 0
+            ) {
+                Text("Restore hidden playlists")
+            }
+            Text(
+                text = "Restoring clears the hidden list — run Resync Library afterwards to bring the playlists back.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp)
+            )
 
             Spacer(modifier = Modifier.height(24.dp))
             SectionHeader("Updates")
@@ -576,4 +616,58 @@ private fun modeLabel(mode: String): String = when (mode) {
     "my_library" -> "My Library"
     "playlist_url" -> "Playlist URL"
     else -> mode
+}
+
+/**
+ * v0.1.15 — Download health dashboard. Shows honest totals derived from the
+ * stored library (playlist/track/downloaded counts) plus the last sync's new /
+ * unchanged / failed counts, with cookie re-login guidance when the last sync
+ * failed on an auth error. Per-track failure lists are not tracked by the sync
+ * pipeline, so the card never invents them.
+ */
+@Composable
+private fun DownloadHealthSection(
+    playlistCount: Int,
+    totalTrackCount: Int,
+    downloadedTrackCount: Int,
+    lastSyncSummary: SyncSummary?
+) {
+    SectionHeader("Download health")
+    InfoRow(
+        "Library",
+        "$playlistCount playlists • $totalTrackCount tracks • $downloadedTrackCount downloaded"
+    )
+    val summary = lastSyncSummary
+    if (summary != null) {
+        InfoRow("Last sync", summary.timeLabel())
+        InfoRow(
+            "Result",
+            when {
+                !summary.success -> "Failed"
+                summary.failedCount > 0 -> "Partial — some downloads failed"
+                else -> "Success"
+            }
+        )
+        InfoRow(
+            "Downloads",
+            "${summary.downloadedCount} new • ${summary.skippedCount} unchanged" +
+                (if (summary.failedCount > 0) " • ${summary.failedCount} failed" else "")
+        )
+        val error = summary.error
+        if (error != null && isCookieAuthError(error)) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = COOKIE_EXPIRED_GUIDANCE,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+    } else {
+        Text(
+            text = "No sync has run yet — sync your library to see download totals here.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
 }
