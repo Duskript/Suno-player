@@ -12,9 +12,9 @@ android {
         applicationId = "com.duskript.sunolocal"
         minSdk = 26
         targetSdk = 35
-        // Playlist detail parser hotfix release: versionCode 12, versionName 0.1.11-playlist-detail-parser.
-        versionCode = 12
-        versionName = "0.1.11-playlist-detail-parser"
+        // Playlist endpoint priority hotfix release: versionCode 13, versionName 0.1.12-playlist-endpoint-priority.
+        versionCode = 13
+        versionName = "0.1.12-playlist-endpoint-priority"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

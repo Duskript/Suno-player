@@ -1,5 +1,6 @@
 package com.duskript.sunolocal.core.network
 
+import android.util.Log
 import com.duskript.sunolocal.core.auth.CookieStore
 import com.duskript.sunolocal.domain.model.SunoPlaylist
 import com.duskript.sunolocal.domain.model.SunoTrack
@@ -37,10 +38,10 @@ class SunoApiClient(
         "$apiBase/playlist/me?page=$page&show_trashed=false&show_sharelist=$includeSavedSharelists"
 
     /** Current browser endpoint for one playlist detail page including playlist_clips[].clip. */
-    private fun playlistV2Url(id: String, page: Int = 1): String = "$apiBase/playlist/v2/$id?page=$page"
+    private fun playlistCurrentUrl(id: String, page: Int = 1): String = "$apiBase/playlist/$id/?page=$page"
 
-    /** Legacy detail endpoint kept as a fallback because Suno rotates private paths. */
-    private fun playlistLegacyUrl(id: String, page: Int = 1): String = "$apiBase/playlist/$id/?page=$page"
+    /** Alternate v2 detail endpoint kept as a fallback because Suno rotates private paths. */
+    private fun playlistV2Url(id: String, page: Int = 1): String = "$apiBase/playlist/v2/$id?page=$page"
 
     /** Endpoint to verify current session/config. */
     private val sessionUrl: String get() = "$apiBase/session/"
@@ -224,6 +225,9 @@ class SunoApiClient(
         } while (totalResults != null && allTracks.size < totalResults && page <= MAX_PLAYLIST_DETAIL_PAGES)
 
         val base = merged ?: throw SunoApiException("Failed to parse playlist JSON", 0)
+        if (allTracks.isEmpty()) {
+            Log.w(TAG, "Playlist detail returned zero parsed tracks for $playlistId after $page page attempt(s)")
+        }
         return base.copy(tracks = allTracks.distinctBy { it.id })
     }
 
@@ -307,7 +311,7 @@ class SunoApiClient(
         var lastResponse: okhttp3.Response? = null
         var lastBody: String? = null
 
-        for (url in listOf(playlistV2Url(playlistId, page), playlistLegacyUrl(playlistId, page))) {
+        for (url in listOf(playlistCurrentUrl(playlistId, page), playlistV2Url(playlistId, page))) {
             val request = Request.Builder()
                 .url(url)
                 .withSunoHeaders()
@@ -543,6 +547,7 @@ class SunoApiClient(
     }
 }
 
+private const val TAG = "SunoApiClient"
 private const val MAX_PLAYLIST_PAGES = 10
 private const val MAX_PLAYLIST_DETAIL_PAGES = 20
 

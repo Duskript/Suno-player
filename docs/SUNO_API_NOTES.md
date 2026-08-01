@@ -20,7 +20,7 @@ The current web app bundles use `https://studio-api-prod.suno.com` and an OpenAP
 |---|---:|---|
 | My playlists | GET | `https://studio-api-prod.suno.com/api/playlist/me?page=1&show_trashed=false&show_sharelist=false` |
 | Saved/shared playlists from other profiles | GET | `https://studio-api-prod.suno.com/api/playlist/me?page=1&show_trashed=false&show_sharelist=true` |
-| Playlist detail | GET | `https://studio-api-prod.suno.com/api/playlist/v2/{playlist_id}?page=1` preferred; fallback `https://studio-api-prod.suno.com/api/playlist/{playlist_id}/?page=1` |
+| Playlist detail | GET | `https://studio-api-prod.suno.com/api/playlist/{playlist_id}/?page=1` preferred; fallback `https://studio-api-prod.suno.com/api/playlist/v2/{playlist_id}?page=1` |
 | User session/config | GET | `https://studio-api-prod.suno.com/api/session/` |
 | Session id helper | GET | `https://studio-api-prod.suno.com/api/user/get_user_session_id/` |
 | Clip lookup | GET | `https://studio-api-prod.suno.com/api/clip/{clip_id}` |
@@ -61,6 +61,7 @@ __session=<jwt>; other_cookie=value
 - `/api/playlist/me` returns explicit playlists, not necessarily every generated song. Generated-song history lives behind `/api/feed/v3`, but importing it by default floods the local library with experiments; keep normal sync playlist-scoped unless a separate opt-in import flow is added.
 - Do not silently fall back from failed playlist detail fetches to empty playlist summaries; summary-only fallback makes sync appear successful while downloading zero tracks.
 - Some playlist detail responses include `playlist_clips`/track arrays without repeating parseable playlist `id`/`title`; parse those using the `/playlist/me` summary as the playlist metadata base instead of failing before downloads.
+- Suno's current web frontend (`usePlaylistById`) loads playlist details from `/api/playlist/{playlist_id}/?page=1`; prefer that over `/api/playlist/v2/{playlist_id}` because v2 can return HTTP 200 while omitting `playlist_clips` for normal library sync.
 - Other-profile playlist metadata/lyrics require the v2 playlist detail endpoint; summary/list responses may omit full `playlist_clips[].clip.metadata`.
 - Audio files may be served as MP3, WAV, OGG, or expiring CDN URLs depending on generation mode.
 - Android may reject WorkManager foreground-service promotion (`SystemForegroundService`, `mAllowStartForeground=false`) even for sync work; foreground notification setup must be best-effort so playlist fetch/download continues as normal WorkManager work.
