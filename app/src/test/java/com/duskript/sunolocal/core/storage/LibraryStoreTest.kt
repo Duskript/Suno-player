@@ -71,6 +71,30 @@ class LibraryStoreTest {
     }
 
     @Test
+    fun `SunoTrackJson discovery metadata defaults are absent for old JSON`() {
+        val track = SunoTrackJson(id = "track-3", title = "Legacy Track")
+
+        assertTrue("tags should default to empty", track.tags.isEmpty())
+        assertNull("mood should default to null", track.mood)
+        assertNull("genre should default to null", track.genre)
+    }
+
+    @Test
+    fun `SunoTrackJson carries discovery metadata for new JSON`() {
+        val track = SunoTrackJson(
+            id = "track-4",
+            title = "Rich Track",
+            tags = listOf("synthwave", "instrumental"),
+            mood = "Energetic",
+            genre = "Electronic"
+        )
+
+        assertEquals(listOf("synthwave", "instrumental"), track.tags)
+        assertEquals("Energetic", track.mood)
+        assertEquals("Electronic", track.genre)
+    }
+
+    @Test
     fun `Playlist round-trip serialisation maintains savedFromOtherCreator flag`() {
         val playlist = SunoPlaylistJson(
             id = "pl-external",

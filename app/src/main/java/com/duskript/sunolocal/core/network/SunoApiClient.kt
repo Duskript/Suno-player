@@ -363,6 +363,19 @@ class SunoApiClient(
         val descriptionPrompt = firstNonBlank(json, "description_prompt", "gpt_description_prompt", "description")
             ?: metadata?.let { firstNonBlank(it, "description_prompt", "gpt_description_prompt", "description") }
 
+        // Batch 5 — optional discovery metadata. Tags may arrive as a JSON
+        // array or a comma/line-separated string, at top level or inside
+        // `metadata`. Mood/genre are plain strings; genre falls back to the
+        // first tag when Suno does not expose an explicit genre field.
+        val tags = extractStringList(json, "tags", "tag", "genres", "genre")
+            ?: metadata?.let { extractStringList(it, "tags", "genres") }
+            ?: emptyList()
+        val mood = firstNonBlank(json, "mood")
+            ?: metadata?.let { firstNonBlank(it, "mood") }
+        val genre = firstNonBlank(json, "genre")
+            ?: metadata?.let { firstNonBlank(it, "genre") }
+            ?: tags.firstOrNull()
+
         return SunoTrack(
             id = id,
             title = title,
@@ -375,6 +388,9 @@ class SunoApiClient(
             lyrics = lyrics,
             stylePrompt = stylePrompt,
             descriptionPrompt = descriptionPrompt,
+            tags = tags,
+            mood = mood,
+            genre = genre,
             localPath = null,
             downloadedAtEpochMs = 0L
         )
@@ -417,6 +433,29 @@ class SunoApiClient(
         if (!json.has(key)) return null
         val value = json.optLong(key, 0L)
         return value.takeIf { it > 0L }
+    }
+
+    /**
+     * Reads a list of tag strings from the first present key. Handles both a
+     * JSON array value and a comma/line-separated string value. Returns null
+     * when none of the keys carries usable tags, so callers can fall back.
+     */
+    private fun extractStringList(json: JSONObject, vararg keys: String): List<String>? {
+        for (key in keys) {
+            if (!json.has(key) || json.isNull(key)) continue
+            val value = json.opt(key)
+            val items = when (value) {
+                is JSONArray -> (0 until value.length()).mapNotNull { i ->
+                    value.optString(i).trim().takeIf { it.isNotBlank() && it != "null" }
+                }
+                is String -> value.split(',', ';', '\n')
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() && it != "null" }
+                else -> emptyList()
+            }
+            if (items.isNotEmpty()) return items
+        }
+        return null
     }
 
     private fun extractSessionJwt(cookieHeader: String): String? {

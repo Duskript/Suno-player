@@ -13,6 +13,7 @@ An Android-native (Kotlin / Jetpack Compose) app for downloading Suno playlists 
 - **Persistent local library** — metadata and downloaded file paths are stored in app-private JSON.
 - **Sync status & reliability** — the last sync result (time, counts, failures) persists across restarts and is shown on the Library page and in Settings → Library Sync; transient network failures retry automatically via WorkManager, and expired cookies surface re-login guidance.
 - **Search & filters** — a search field on the Library page filters playlists by title/creator, with All / Downloaded only / Custom mixes filter chips; inside a playlist, a track search matches title, creator, lyrics, style prompt, and description prompt.
+- **Metadata & discovery** — when Suno provides them, mood/genre/tag fields are fetched, stored (backward-compatible JSON), and shown on track rows and the track detail dialog. Tapping a creator name (track row, detail dialog, or playlist card) opens a local Creator view listing every playlist/track by that creator in the library — no network calls. Track details also show a local **Similar tracks** list scored from shared tags, genre, and style-prompt keywords, again from the library alone.
 
 ## Architecture
 
@@ -59,7 +60,7 @@ com.duskript.sunolocal/
    ```
 4. Install the APK on your device/emulator (API 26+).
 
-> **Current build:** `0.1.4-playlist-manager` (versionCode 5) — builds with JDK 17+ and Android SDK platform 35 via the Gradle wrapper. Requires JDK 17+ (Android Gradle Plugin 8.7) and the corresponding SDK platform.
+> **Current build:** `0.1.5-metadata-discovery` (versionCode 6) — builds with JDK 17+ and Android SDK platform 35 via the Gradle wrapper. Requires JDK 17+ (Android Gradle Plugin 8.7) and the corresponding SDK platform.
 
 ## Suno API Status
 

@@ -118,6 +118,12 @@ class LibraryStore(context: Context) {
                 put("lyrics", track.lyrics ?: JSONObject.NULL)
                 put("style_prompt", track.stylePrompt ?: JSONObject.NULL)
                 put("description_prompt", track.descriptionPrompt ?: JSONObject.NULL)
+                // Batch 5 — optional discovery metadata. `tags` is always
+                // written (possibly empty); `mood`/`genre` follow the same
+                // NULL-when-absent convention as the other optional fields.
+                put("tags", JSONArray(track.tags))
+                put("mood", track.mood ?: JSONObject.NULL)
+                put("genre", track.genre ?: JSONObject.NULL)
                 put("downloaded_at_epoch_ms", track.downloadedAtEpochMs)
             })
         }
@@ -170,6 +176,15 @@ class LibraryStore(context: Context) {
             lyrics = json.optNullableString("lyrics"),
             stylePrompt = json.optNullableString("style_prompt"),
             descriptionPrompt = json.optNullableString("description_prompt"),
+            // Batch 5 — missing keys in old JSON yield emptyList()/null, so
+            // libraries written before this batch load unchanged.
+            tags = json.optJSONArray("tags")?.let { array ->
+                (0 until array.length()).mapNotNull { i ->
+                    array.optString(i).trim().takeIf { it.isNotBlank() && it != "null" }
+                }
+            } ?: emptyList(),
+            mood = json.optNullableString("mood"),
+            genre = json.optNullableString("genre"),
             downloadedAtEpochMs = json.optLong("downloaded_at_epoch_ms", 0L)
         )
     }
@@ -198,6 +213,9 @@ data class SunoTrackJson(
     val lyrics: String? = null,
     val stylePrompt: String? = null,
     val descriptionPrompt: String? = null,
+    val tags: List<String> = emptyList(),
+    val mood: String? = null,
+    val genre: String? = null,
     val downloadedAtEpochMs: Long = 0L
 )
 
@@ -236,5 +254,8 @@ private fun SunoTrack.toJson(): SunoTrackJson = SunoTrackJson(
     lyrics = lyrics,
     stylePrompt = stylePrompt,
     descriptionPrompt = descriptionPrompt,
+    tags = tags,
+    mood = mood,
+    genre = genre,
     downloadedAtEpochMs = downloadedAtEpochMs
 )

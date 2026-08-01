@@ -52,6 +52,12 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val _selectedPlaylist = MutableStateFlow<SunoPlaylist?>(null)
     val selectedPlaylist: StateFlow<SunoPlaylist?> = _selectedPlaylist.asStateFlow()
 
+    // Batch 5 — creator browsing is local-only navigation state: selecting a
+    // creator name shows their playlists/tracks from the in-memory library.
+    // Nothing here triggers network calls or persistence writes.
+    private val _selectedCreator = MutableStateFlow<String?>(null)
+    val selectedCreator: StateFlow<String?> = _selectedCreator.asStateFlow()
+
     private val _syncStatus = MutableStateFlow(SyncStatus.IDLE)
     val syncStatus: StateFlow<SyncStatus> = _syncStatus.asStateFlow()
 
@@ -217,6 +223,18 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
 
     fun clearSelection() {
         _selectedPlaylist.value = null
+    }
+
+    // Batch 5 — creator browsing navigation (local only).
+
+    /** Open the local Creator view for [name]; no network or persistence. */
+    fun selectCreator(name: String) {
+        _selectedCreator.value = name
+    }
+
+    /** Close the Creator view; returns to whichever list was underneath. */
+    fun clearCreatorSelection() {
+        _selectedCreator.value = null
     }
 
     fun createCustomPlaylist(title: String) {
@@ -457,6 +475,25 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         audioPlayer.playPause()
     }
 
+    /**
+     * Batch 5 — play a track found anywhere in the library (used by the Creator
+     * view and by track details opened outside the selected playlist, e.g. a
+     * similar-track). The queue is the library-wide playable track list so
+     * playback continues across playlists; dedupe by id because a track can
+     * appear in several playlists.
+     */
+    fun playTrackFromLibrary(trackId: String) {
+        val allTracks = _playlists.value.asSequence()
+            .flatMap { it.tracks.asSequence() }
+            .distinctBy { it.id }
+            .toList()
+        if (allTracks.none { it.id == trackId }) return
+        val playableTracks = allTracks.filter { it.isPlayable }
+        if (playableTracks.isEmpty()) return
+        audioPlayer.setQueue(playableTracks, startTrackId = trackId)
+        audioPlayer.playPause()
+    }
+
     fun addTrackToQueue(trackId: String) {
         val track = _playlists.value.asSequence()
             .flatMap { it.tracks.asSequence() }
@@ -525,5 +562,8 @@ private fun SunoTrackJson.toDomain(): SunoTrack = SunoTrack(
     lyrics = lyrics,
     stylePrompt = stylePrompt,
     descriptionPrompt = descriptionPrompt,
+    tags = tags,
+    mood = mood,
+    genre = genre,
     downloadedAtEpochMs = downloadedAtEpochMs
 )

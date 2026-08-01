@@ -3,6 +3,7 @@ package com.duskript.sunolocal.features.library.ui
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -79,6 +80,10 @@ import com.duskript.sunolocal.features.library.state.LibraryViewModel
 import com.duskript.sunolocal.features.library.state.defaultDuplicateTitle
 import com.duskript.sunolocal.features.library.state.filterPlaylists
 import com.duskript.sunolocal.features.library.state.filterTracks
+import com.duskript.sunolocal.features.library.state.playlistsByCreator
+import com.duskript.sunolocal.features.library.state.similarTracks
+import com.duskript.sunolocal.features.library.state.trackMetadataLine
+import com.duskript.sunolocal.features.library.state.tracksByCreator
 import com.duskript.sunolocal.shared.ui.ElevenLabsStylePlayer
 
 /**
@@ -93,6 +98,7 @@ fun LibraryScreen(
 ) {
     val playlists by viewModel.playlists.collectAsState()
     val selectedPlaylist by viewModel.selectedPlaylist.collectAsState()
+    val selectedCreator by viewModel.selectedCreator.collectAsState()
     val syncStatus by viewModel.syncStatus.collectAsState()
     val lastSyncSummary by viewModel.lastSyncSummary.collectAsState()
     val cookieConfigured by viewModel.cookieConfigured.collectAsState()
@@ -136,6 +142,12 @@ fun LibraryScreen(
     // Track search applies per-playlist: reset it whenever the open playlist
     // changes (including returning to the playlist list page).
     LaunchedEffect(selectedPlaylist?.id) { trackSearchQuery = "" }
+
+    // Batch 5 — flat, deduped library track list for the local "Similar
+    // tracks" heuristic (no network; derived from in-memory playlists).
+    val allTracks = remember(playlists) {
+        playlists.flatMap { it.tracks }.distinctBy { it.id }
+    }
 
     if (errorMessage != null && !showErrorDialog) {
         currentError = errorMessage
@@ -343,14 +355,32 @@ fun LibraryScreen(
     }
 
     selectedTrackDetails?.let { track ->
+        // Batch 5 — track details now show mood/genre/tags and a local
+        // "Similar tracks" list. Play keeps the existing in-playlist queue
+        // behavior; the library-wide fallback (playTrackFromLibrary) only
+        // kicks in for tracks opened outside the selected playlist, e.g. a
+        // similar track from another playlist or a creator-view track, where
+        // the playlist-scoped playTrack would silently no-op.
+        val inSelectedPlaylist = selectedPlaylist?.tracks?.any { it.id == track.id } == true
         TrackDetailDialog(
             track = track,
+            allTracks = allTracks,
             onDismiss = { selectedTrackDetails = null },
             onPlay = {
-                viewModel.playTrack(track.id)
+                if (inSelectedPlaylist) {
+                    viewModel.playTrack(track.id)
+                } else {
+                    viewModel.playTrackFromLibrary(track.id)
+                }
                 selectedTrackDetails = null
             },
-            onAddToQueue = { viewModel.addTrackToQueue(track.id) }
+            onAddToQueue = { viewModel.addTrackToQueue(track.id) },
+            onShowTrack = { selectedTrackDetails = it },
+            onQueueTrack = { viewModel.addTrackToQueue(it.id) },
+            onCreatorClick = { name ->
+                viewModel.selectCreator(name)
+                selectedTrackDetails = null
+            }
         )
     }
 
@@ -466,7 +496,23 @@ fun LibraryScreen(
             }
 
             val selected = selectedPlaylist
+            val creator = selectedCreator
             when {
+                // Batch 5 — Creator view sits above the playlist/track lists;
+                // Back clears it and returns to whichever list was underneath.
+                creator != null -> CreatorView(
+                    creatorName = creator,
+                    creatorPlaylists = playlistsByCreator(playlists, creator),
+                    tracks = tracksByCreator(playlists, creator),
+                    onBack = viewModel::clearCreatorSelection,
+                    onPlaylistClick = { playlistId ->
+                        viewModel.selectPlaylist(playlistId)
+                        viewModel.clearCreatorSelection()
+                    },
+                    onPlayTrack = viewModel::playTrackFromLibrary,
+                    onShowTrackDetails = { selectedTrackDetails = it },
+                    onAddToQueue = { viewModel.addTrackToQueue(it.id) }
+                )
                 selected != null -> TrackListView(
                     playlist = selected,
                     trackSearchQuery = trackSearchQuery,
@@ -490,7 +536,8 @@ fun LibraryScreen(
                         duplicateInput = defaultDuplicateTitle(selected.title)
                     },
                     onOpenSource = { viewModel.openPlaylistSource(selected.id) },
-                    onShareSource = { viewModel.sharePlaylistSource(selected.id) }
+                    onShareSource = { viewModel.sharePlaylistSource(selected.id) },
+                    onCreatorClick = viewModel::selectCreator
                 )
                 playlists.isEmpty() -> EmptyLibrary(cookieConfigured = cookieConfigured)
                 else -> {
@@ -521,7 +568,8 @@ fun LibraryScreen(
                                 duplicateInput = defaultDuplicateTitle(playlist.title)
                             },
                             onOpenSource = viewModel::openPlaylistSource,
-                            onShareSource = viewModel::sharePlaylistSource
+                            onShareSource = viewModel::sharePlaylistSource,
+                            onCreatorClick = viewModel::selectCreator
                         )
                     }
                 }
@@ -736,7 +784,8 @@ private fun PlaylistListView(
     onDeletePlaylist: (SunoPlaylist) -> Unit,
     onDuplicatePlaylist: (SunoPlaylist) -> Unit,
     onOpenSource: (String) -> Unit,
-    onShareSource: (String) -> Unit
+    onShareSource: (String) -> Unit,
+    onCreatorClick: (String) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -752,7 +801,8 @@ private fun PlaylistListView(
                 onDuplicate = { onDuplicatePlaylist(playlist) },
                 onDelete = { onDeletePlaylist(playlist) },
                 onOpenSource = { onOpenSource(playlist.id) },
-                onShareSource = { onShareSource(playlist.id) }
+                onShareSource = { onShareSource(playlist.id) },
+                onCreatorClick = onCreatorClick
             )
         }
     }
@@ -767,7 +817,8 @@ private fun PlaylistCard(
     onDuplicate: () -> Unit,
     onDelete: () -> Unit,
     onOpenSource: () -> Unit,
-    onShareSource: () -> Unit
+    onShareSource: () -> Unit,
+    onCreatorClick: (String) -> Unit
 ) {
     Card(
         onClick = onClick,
@@ -786,8 +837,17 @@ private fun PlaylistCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                playlist.creatorName?.let {
-                    Text("by $it", style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // Batch 5 — creator names are tappable and open the local
+                // Creator view (no network; grouping is in-memory only).
+                playlist.creatorName?.let { creator ->
+                    Text(
+                        text = "by $creator",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.clickable { onCreatorClick(creator) }
+                    )
                 }
                 Text(
                     text = "${playlist.downloadedTrackCount}/${playlist.trackCount} tracks",
@@ -857,7 +917,8 @@ private fun TrackListView(
     onDeletePlaylist: () -> Unit,
     onDuplicatePlaylist: () -> Unit,
     onOpenSource: () -> Unit,
-    onShareSource: () -> Unit
+    onShareSource: () -> Unit,
+    onCreatorClick: (String) -> Unit
 ) {
     // Batch 3 — pure search over the playlist's own tracks. Persistence and the
     // original track ids used by move/remove actions are untouched.
@@ -967,7 +1028,8 @@ private fun TrackListView(
                         onAddToPlaylist = { targetId -> onAddToPlaylist(track.id, targetId) },
                         onMoveUp = { onMoveTrack(track.id, -1) },
                         onMoveDown = { onMoveTrack(track.id, 1) },
-                        onRemove = { onRemoveTrack(track.id) }
+                        onRemove = { onRemoveTrack(track.id) },
+                        onCreatorClick = onCreatorClick
                     )
                 }
             }
@@ -986,7 +1048,8 @@ private fun TrackRow(
     onAddToPlaylist: (String) -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
-    onRemove: () -> Unit
+    onRemove: () -> Unit,
+    onCreatorClick: (String) -> Unit
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
 
@@ -1027,15 +1090,27 @@ private fun TrackRow(
             Spacer(modifier = Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(track.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // Batch 5 — creator name is tappable and opens the local
+                // Creator view listing every library playlist/track by them.
+                val creator = track.creatorName
                 Text(
-                    text = "Creator: ${track.creatorName ?: "Unknown"}",
+                    text = "Creator: ${creator ?: "Unknown"}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = if (creator != null) {
+                        Modifier.clickable { onCreatorClick(creator) }
+                    } else {
+                        Modifier
+                    }
                 )
                 if (track.metadataSummary.isNotBlank()) {
                     Text(track.metadataSummary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                // Batch 5 — genre/mood/tags line when Suno provided them.
+                trackMetadataLine(track)?.let { line ->
+                    Text(line, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
                 track.descriptionPrompt?.takeIf { it.isNotBlank() }?.let {
                     Text("Prompt: ${it.take(120)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -1069,20 +1144,33 @@ private fun TrackRow(
 @Composable
 private fun TrackDetailDialog(
     track: SunoTrack,
+    allTracks: List<SunoTrack>,
     onDismiss: () -> Unit,
     onPlay: () -> Unit,
-    onAddToQueue: () -> Unit
+    onAddToQueue: () -> Unit,
+    onShowTrack: (SunoTrack) -> Unit,
+    onQueueTrack: (SunoTrack) -> Unit,
+    onCreatorClick: (String) -> Unit
 ) {
+    // Batch 5 — local-only similar-track heuristic over the in-memory library.
+    val similar = remember(track, allTracks) { similarTracks(track, allTracks) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Column {
                 Text(track.title, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                // Tappable creator name opens the local Creator view.
+                val creator = track.creatorName
                 Text(
-                    text = "Creator: ${track.creatorName ?: "Unknown"}",
+                    text = "Creator: ${creator ?: "Unknown"}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = if (creator != null) {
+                        Modifier.clickable { onCreatorClick(creator) }
+                    } else {
+                        Modifier
+                    }
                 )
             }
         },
@@ -1093,6 +1181,20 @@ private fun TrackDetailDialog(
             ) {
                 PlaylistArt(track.imageUrl, modifier = Modifier.size(180.dp).align(Alignment.CenterHorizontally))
                 DetailSection("Creator", track.creatorName ?: "Unknown")
+                // Batch 5 — discovery metadata when Suno provided it.
+                track.genre?.takeIf { it.isNotBlank() }?.let {
+                    DetailSection("Genre", it)
+                }
+                track.mood?.takeIf { it.isNotBlank() }?.let {
+                    DetailSection("Mood", it)
+                }
+                track.tags.asSequence()
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                    .toList()
+                    .takeIf { it.isNotEmpty() }
+                    ?.let { DetailSection("Tags", it.joinToString(", ")) }
                 if (track.metadataSummary.isNotBlank()) {
                     DetailSection("Metadata", track.metadataSummary)
                 }
@@ -1106,6 +1208,45 @@ private fun TrackDetailDialog(
                     title = "Lyrics",
                     body = track.lyrics?.takeIf { it.isNotBlank() } ?: "No lyrics stored for this song yet. Resync metadata after refreshing the Suno login."
                 )
+                if (similar.isNotEmpty()) {
+                    HorizontalDivider()
+                    Text("Similar tracks", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    similar.forEach { similarTrack ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onShowTrack(similarTrack) }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            PlaylistArt(similarTrack.imageUrl, modifier = Modifier.size(40.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    similarTrack.title,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = "Creator: ${similarTrack.creatorName ?: "Unknown"}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            TextButton(
+                                onClick = { onQueueTrack(similarTrack) },
+                                enabled = similarTrack.isPlayable,
+                                contentPadding = PaddingValues(horizontal = 8.dp)
+                            ) {
+                                Text("+ Queue", style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
@@ -1220,6 +1361,170 @@ private fun PlaylistArt(imageUrl: String?, modifier: Modifier = Modifier) {
             modifier = modifier,
             contentScale = ContentScale.Crop
         )
+    }
+}
+
+/**
+ * Batch 5 — local Creator view: every library playlist and track by one
+ * creator. Pure in-memory grouping (MetadataDiscoveryHelpers) — no network
+ * calls and no persistence writes. Back returns to the previous list.
+ */
+@Composable
+private fun CreatorView(
+    creatorName: String,
+    creatorPlaylists: List<SunoPlaylist>,
+    tracks: List<SunoTrack>,
+    onBack: () -> Unit,
+    onPlaylistClick: (String) -> Unit,
+    onPlayTrack: (String) -> Unit,
+    onShowTrackDetails: (SunoTrack) -> Unit,
+    onAddToQueue: (SunoTrack) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextButton(onClick = onBack) { Text("< Back") }
+            Spacer(modifier = Modifier.weight(1f))
+        }
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+            Text("Creator: $creatorName", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text(
+                text = "${creatorPlaylists.size} playlists • ${tracks.size} tracks in your library",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            if (creatorPlaylists.isNotEmpty()) {
+                item(key = "header-playlists") {
+                    Text(
+                        "Playlists by $creatorName",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                items(creatorPlaylists, key = { "pl-${it.id}" }) { playlist ->
+                    CreatorPlaylistRow(
+                        playlist = playlist,
+                        onClick = { onPlaylistClick(playlist.id) }
+                    )
+                }
+            }
+            if (tracks.isNotEmpty()) {
+                item(key = "header-tracks") {
+                    Text(
+                        "Tracks by $creatorName",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                items(tracks, key = { "tr-${it.id}" }) { track ->
+                    CreatorTrackRow(
+                        track = track,
+                        onClick = { onShowTrackDetails(track) },
+                        onPlay = { onPlayTrack(track.id) },
+                        onAddToQueue = { onAddToQueue(track) }
+                    )
+                }
+            }
+            if (creatorPlaylists.isEmpty() && tracks.isEmpty()) {
+                item(key = "empty") {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "No library items by this creator yet.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CreatorPlaylistRow(
+    playlist: SunoPlaylist,
+    onClick: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        shape = RoundedCornerShape(10.dp)
+    ) {
+        Row(modifier = Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            PlaylistArt(playlist.tracks.firstOrNull()?.imageUrl, modifier = Modifier.size(48.dp))
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    playlist.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "${playlist.trackCount} tracks • ${playlist.downloadedTrackCount} downloaded",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Icon(Icons.Filled.PlayArrow, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+@Composable
+private fun CreatorTrackRow(
+    track: SunoTrack,
+    onClick: () -> Unit,
+    onPlay: () -> Unit,
+    onAddToQueue: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Row(modifier = Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            PlaylistArt(track.imageUrl, modifier = Modifier.size(48.dp))
+            Spacer(modifier = Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    track.title,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                trackMetadataLine(track)?.let { line ->
+                    Text(
+                        line,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            IconButton(onClick = onPlay, enabled = track.isPlayable) {
+                Icon(Icons.Filled.PlayArrow, contentDescription = "Play ${track.title}")
+            }
+            IconButton(onClick = onAddToQueue, enabled = track.isPlayable) {
+                Icon(Icons.Filled.QueueMusic, contentDescription = "Add ${track.title} to queue")
+            }
+        }
     }
 }
 

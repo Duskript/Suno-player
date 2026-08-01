@@ -2,10 +2,10 @@
 
 This document is a **plan only** for the batches that remain. **Batch 1
 (playback polish), Batch 2 (sync visibility & reliability), Batch 3 (search /
-filter), and Batch 4 (playlist manager) are implemented** — see the
-verification notes in their sections below. Each remaining batch is small
-enough to review, verify, commit, and push on its own. The current shipped
-surface is described in the project `README.md`.
+filter), Batch 4 (playlist manager), and Batch 5 (metadata & discovery) are
+implemented** — see the verification notes in their sections below. Each
+remaining batch is small enough to review, verify, commit, and push on its
+own. The current shipped surface is described in the project `README.md`.
 
 > ⚠️ **Commit/push checkpoint language is for the planner/human maintainer.**
 > Executors working from these batches must **not** commit or push themselves;
@@ -158,17 +158,44 @@ batch if a stable, dependency-light approach appears.
 
 **Goal:** richer track info and browsing by creator.
 
-- [ ] Fetch and store full lyrics (multi-paragraph) and style/prompt metadata for all tracks on sync.
-- [ ] Creator page: tap a creator name to list all their playlists/tracks in the library.
-- [ ] "Similar tracks" hint using shared style prompt / genre keywords (local-only heuristic, no new network calls).
-- [ ] Show song mood/genre tags on the track row and detail dialog when Suno provides them.
-- [ ] Keep existing fields (`metadataSummary`, `descriptionPrompt`, `stylePrompt`) as the source of truth.
+- [x] Fetch and store full lyrics (multi-paragraph) and style/prompt metadata for all tracks on sync.
+- [x] Creator page: tap a creator name to list all their playlists/tracks in the library.
+- [x] "Similar tracks" hint using shared style prompt / genre keywords (local-only heuristic, no new network calls).
+- [x] Show song mood/genre tags on the track row and detail dialog when Suno provides them.
+- [x] Keep existing fields (`metadataSummary`, `descriptionPrompt`, `stylePrompt`) as the source of truth.
+
+**Implemented (2026-07-31).** `SunoApiClient.parseTrackJson` now extracts
+optional discovery fields alongside the existing lyrics/style/description
+fields (which remain the source of truth and are unchanged): `tags` from
+string-or-array `tags`/`tag`/`genres`/`genre` keys (top level or
+`metadata.*`), `mood` from `mood`/`metadata.mood`, and `genre` from
+`genre`/`metadata.genre` with a fallback to the first tag when no explicit
+genre exists. `SunoTrack`/`SunoTrackJson` gained `tags` (default empty) and
+`mood`/`genre` (default null); `LibraryStore` writes `tags`/`mood`/`genre`
+and reads them with missing-key-safe defaults, so JSON written before this
+batch loads unchanged (backward compatible). The `LibraryViewModel`
+`SunoTrackJson.toDomain()` conversion carries the new fields through.
+
+Creator browsing is fully local: tappable creator names on playlist cards,
+track rows, and the track detail dialog open a Creator view that lists every
+library playlist/track by that creator (`tracksByCreator` /
+`playlistsByCreator` in `MetadataDiscoveryHelpers.kt`; case-insensitive
+matching, track-creator with playlist-creator fallback, dedupe by track id).
+No network calls; back returns to the previous list. Track details also show
+mood/genre/tags sections and a **Similar tracks** list (`similarTracks`:
+shared normalized tags + genre + style-prompt keyword tokens, target excluded,
+zero-overlap dropped, ties broken by title then id, limit 5). Similar tracks
+and creator-view tracks support play (`playTrackFromLibrary` — library-wide
+queue) and add-to-queue while preserving the original in-playlist play path.
+`trackMetadataLine` renders the Genre/Mood/Tags row summary. All helpers are
+pure JVM functions tested in `MetadataDiscoveryHelpersTest.kt`. Version
+bumped to `0.1.5-metadata-discovery` (versionCode 6).
 
 **Verification**
 1. `./gradlew testDebugUnitTest assembleDebug` → BUILD SUCCESSFUL.
-2. Unit tests for lyrics extraction and creator grouping helpers.
+2. Unit tests for creator grouping and the similar-tracks heuristic.
 
-**Checkpoint:** review diff → commit (`feat(metadata): lyrics depth, creator pages, similar tracks`) → push.
+**Checkpoint:** review diff → commit (`feat(metadata): richer metadata, creator pages, similar tracks`) → push.
 
 ---
 

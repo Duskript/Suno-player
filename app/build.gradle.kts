@@ -12,9 +12,9 @@ android {
         applicationId = "com.duskript.sunolocal"
         minSdk = 26
         targetSdk = 35
-        // Batch 4 (playlist manager) release: versionCode 5, versionName 0.1.4-playlist-manager.
-        versionCode = 5
-        versionName = "0.1.4-playlist-manager"
+        // Batch 5 (metadata & discovery) release: versionCode 6, versionName 0.1.5-metadata-discovery.
+        versionCode = 6
+        versionName = "0.1.5-metadata-discovery"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

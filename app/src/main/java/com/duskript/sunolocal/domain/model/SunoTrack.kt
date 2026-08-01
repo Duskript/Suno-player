@@ -20,6 +20,12 @@ data class SunoTrack(
     val lyrics: String? = null,
     val stylePrompt: String? = null,
     val descriptionPrompt: String? = null,
+    // Batch 5 — optional discovery metadata. Suno does not always provide these
+    // (and older stored JSON predates them), so all three default to absent and
+    // are only populated when the API response actually carries them.
+    val tags: List<String> = emptyList(),
+    val mood: String? = null,
+    val genre: String? = null,
     val downloadedAtEpochMs: Long = 0L
 ) {
     /** Whether this track's audio file has been downloaded to local storage. */
