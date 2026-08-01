@@ -459,13 +459,18 @@ fun LibraryScreen(
 
     if (showErrorDialog && currentError != null) {
         AlertDialog(
-            onDismissRequest = { showErrorDialog = false },
+            onDismissRequest = {
+                showErrorDialog = false
+                currentError = null
+                viewModel.clearErrorMessage()
+            },
             title = { Text("Heads up", fontWeight = FontWeight.Bold) },
             text = { Text(currentError ?: "") },
             confirmButton = {
                 TextButton(onClick = {
                     showErrorDialog = false
                     currentError = null
+                    viewModel.clearErrorMessage()
                 }) { Text("OK") }
             }
         )

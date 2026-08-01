@@ -12,11 +12,11 @@ android {
         applicationId = "com.duskript.sunolocal"
         minSdk = 26
         targetSdk = 35
-        // Roadmap upgrade bundle: versionCode 16, versionName 0.1.15-roadmap-upgrades.
-        // Adds favorites, smart mixes, resume playback, download health, hidden
-        // playlist restore, audio-becoming-noisy pause, and track filter chips.
-        versionCode = 16
-        versionName = "0.1.15-roadmap-upgrades"
+        // Remove-dialog dismiss hotfix: versionCode 17, versionName 0.1.16-remove-dialog-dismiss.
+        // Clears the ViewModel heads-up message when the user taps OK/dismiss,
+        // preventing remove-playlist confirmation popups from reopening.
+        versionCode = 17
+        versionName = "0.1.16-remove-dialog-dismiss"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

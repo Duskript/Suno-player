@@ -64,7 +64,7 @@ com.duskript.sunolocal/
    ```
 4. Install the APK on your device/emulator (API 26+).
 
-> **Current build:** `0.1.15-roadmap-upgrades` (versionCode 16) — builds with JDK 17+ and Android SDK platform 35 via the Gradle wrapper. Requires JDK 17+ (Android Gradle Plugin 8.7) and the corresponding SDK platform.
+> **Current build:** `0.1.16-remove-dialog-dismiss` (versionCode 17) — builds with JDK 17+ and Android SDK platform 35 via the Gradle wrapper. Requires JDK 17+ (Android Gradle Plugin 8.7) and the corresponding SDK platform. Hotfix: acknowledging playlist-remove heads-up dialogs clears the underlying ViewModel message so the popup does not reopen.
 
 ## Suno API Status
 

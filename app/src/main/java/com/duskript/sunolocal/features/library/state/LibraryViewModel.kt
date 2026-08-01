@@ -106,6 +106,11 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
+    /** Clear the current heads-up message after the user acknowledges it. */
+    fun clearErrorMessage() {
+        _errorMessage.value = null
+    }
+
     private val _updateInfo = MutableStateFlow<AppUpdateInfo?>(null)
     val updateInfo: StateFlow<AppUpdateInfo?> = _updateInfo.asStateFlow()
 
