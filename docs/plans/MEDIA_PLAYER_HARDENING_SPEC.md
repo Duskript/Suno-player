@@ -69,13 +69,13 @@
 
 ## Objective
 
-Stop playback from dying when the screen turns off or the Activity is backgrounded. The app must maintain a foreground Media3 playback notification while audio is active, expose usable lockscreen/notification controls, and produce diagnostics proving the service/player remain alive during screen-off.
+Stop playback from dying when the screen turns off or the Activity is backgrounded. The app must maintain a foreground Media3 playback notification while audio is active, expose usable lockscreen/notification controls, and produce diagnostics proving the service/player remain alive during screen-off. **The product requirement is perpetual playback**: once the user starts a queue, playback should continue until the queue ends, the user pauses/stops it, audio output is intentionally disconnected/paused, the device loses power, or Android force-kills the app/process. Any 10-minute/30-minute/overnight check is only a verification sample, not the target behavior.
 
 ## Required behavior
 
 - Starting playback from the app must create/maintain a foreground media playback session.
 - Locking the screen must not pause/stop audio.
-- Turning the screen off for 10+ minutes must not release the shared `ExoPlayer`.
+- Turning the screen off must not release the shared `ExoPlayer`; playback should continue indefinitely while the queue has playable items and the user has not paused/stopped.
 - Swiping app away must not kill active playback unless the user explicitly pauses/stops.
 - Notification/lockscreen controls must include play/pause and skip next/previous when the queue supports them.
 - Tapping notification/lockscreen artwork/control surface must reopen `MainActivity`.
@@ -137,14 +137,14 @@ Stop playback from dying when the screen turns off or the Activity is background
 
 ## Acceptance criteria
 
-- [ ] **AC1:** With a downloaded track playing, `adb shell input keyevent 26` turns the screen off and playback continues for at least 10 minutes; logcat contains no `SunoPlaybackEngine.release`, no `SunoPlaybackService ... releasing shared player`, and no `FATAL EXCEPTION`.
+- [ ] **AC1:** With a downloaded track/queue playing, `adb shell input keyevent 26` turns the screen off and playback continues indefinitely until the queue ends or the user pauses/stops. Verification should include a bounded soak sample (minimum 30 minutes for release gating; overnight preferred when practical), and logcat must contain no `SunoPlaybackEngine.release`, no `SunoPlaybackService ... releasing shared player`, and no `FATAL EXCEPTION` during active playback.
 - [ ] **AC2:** While screen is off and playback is active, `adb shell dumpsys media_session | grep -A20 com.duskript.sunolocal` shows an active session with playback state not `NONE`.
 - [ ] **AC3:** ADB media key events affect playback:
   - `adb shell input keyevent KEYCODE_MEDIA_PAUSE` pauses.
   - `adb shell input keyevent KEYCODE_MEDIA_PLAY` resumes.
   - `adb shell input keyevent KEYCODE_MEDIA_NEXT` advances when a next item exists.
 - [ ] **AC4:** Notification/lockscreen surface opens `MainActivity` when tapped on-device; if notification permission is missing, Settings clearly says outside-app controls may not appear and provides a user action.
-- [ ] **AC5:** Backgrounding via Home and task switcher does not stop playback for at least 10 minutes.
+- [ ] **AC5:** Backgrounding via Home and task switcher does not stop playback; it should continue indefinitely under the same rules as screen-off playback. Use the same bounded soak sample as evidence, but do not treat the sample duration as the product limit.
 - [ ] **AC6:** Swiping the app from recents while playback is active does not release the shared player; pausing/stopping then idling allows cleanup.
 - [ ] **AC7:** Existing flows still pass: in-app controls, queue sheet, resume card, headset/Bluetooth unplug pause, media button receiver, and playlist playback.
 
@@ -376,7 +376,7 @@ Run these as separate Fusion batches and push after each successful feature, sam
 
 **Files:** playback engine/service/player, Settings, README, Gradle.
 
-**Gate:** build + 10-minute screen-off playback test + media session dump.
+**Gate:** build + screen-off/background perpetual-playback design proof + bounded soak sample (minimum 30 minutes; overnight preferred when practical) + media session dump. Do not describe the requirement as “10-minute playback”; 10 minutes is below the product bar.
 
 ## Batch B — Durable foreground media notification / lockscreen controls
 
