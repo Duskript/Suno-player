@@ -12,13 +12,12 @@ android {
         applicationId = "com.duskript.sunolocal"
         minSdk = 26
         targetSdk = 35
-        // Now-playing controls: versionCode 18, versionName 0.1.17-now-playing-controls.
-        // Registers exactly one media button receiver (SunoMediaButtonReceiver,
-        // a Media3 MediaButtonReceiver subclass) so headset/lockscreen
-        // play/pause/next/previous/seek key events route into the shared
-        // MediaSessionService; the session notification tap opens the app.
-        versionCode = 18
-        versionName = "0.1.17-now-playing-controls"
+        // Playlist cleanup tools: versionCode 19, versionName 0.1.18-playlist-cleanup-tools.
+        // Bulk-hides empty synced playlists (API/server placeholders) from the
+        // Settings > Hidden playlists section and keeps the existing single
+        // remove/hide and restore-all hidden-playlist tools.
+        versionCode = 19
+        versionName = "0.1.18-playlist-cleanup-tools"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

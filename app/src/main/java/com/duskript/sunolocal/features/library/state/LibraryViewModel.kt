@@ -23,6 +23,7 @@ import com.duskript.sunolocal.core.storage.LibraryBackupException
 import com.duskript.sunolocal.core.storage.SunoPlaylistJson
 import com.duskript.sunolocal.core.storage.SunoTrackJson
 import com.duskript.sunolocal.core.storage.SyncSummaryStore
+import com.duskript.sunolocal.core.storage.emptySyncedPlaylists
 import com.duskript.sunolocal.core.update.AppUpdateInfo
 import com.duskript.sunolocal.core.update.GitHubUpdateChecker
 import com.duskript.sunolocal.domain.model.COOKIE_EXPIRED_GUIDANCE
@@ -78,6 +79,11 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
 
     private val _hiddenPlaylistCount = MutableStateFlow(libraryStore.loadHiddenPlaylistIds().size)
     val hiddenPlaylistCount: StateFlow<Int> = _hiddenPlaylistCount.asStateFlow()
+
+    // v0.1.18 — bulk cleanup: synced (non-custom, non-smart-mix) playlists with
+    // zero tracks that can be hidden from the Settings screen in one tap.
+    private val _emptySyncedPlaylistCount = MutableStateFlow(0)
+    val emptySyncedPlaylistCount: StateFlow<Int> = _emptySyncedPlaylistCount.asStateFlow()
 
     // Batch 5 — creator browsing is local-only navigation state: selecting a
     // creator name shows their playlists/tracks from the in-memory library.
@@ -248,6 +254,12 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
             .map { it.toDomain() }
         _storedPlaylists.value = stored
         _hiddenPlaylistCount.value = hiddenPlaylistIds.size
+        // v0.1.18 — bulk cleanup count: synced (non-custom, non-smart-mix)
+        // playlists with zero tracks. Smart mixes are never stored, so the
+        // isSmartMixId check is defensive only.
+        _emptySyncedPlaylistCount.value = stored.count {
+            !it.isCustom && !isSmartMixId(it.id) && it.trackCount == 0
+        }
         recomputePlaylists()
     }
 
@@ -291,6 +303,28 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         libraryStore.clearHiddenPlaylists()
         _hiddenPlaylistCount.value = 0
         _errorMessage.value = "Hidden playlist removals cleared — tap Resync Library to bring them back."
+        loadLibrary()
+    }
+
+    // v0.1.18 — bulk cleanup tool.
+
+    /**
+     * Hide every synced (non-custom, non-smart-mix) playlist with zero tracks
+     * from the current stored library in one pass. Empty synced playlists are
+     * usually API/server placeholders Suno reports but that never carry audio.
+     * Hiding only affects the local library — Resync respects hidden ids, and
+     * the user must tap Resync Library to refresh after restoring. Confirmation
+     * dialogs are UI-side; this method just performs the cleanup and reports a
+     * one-shot message through [errorMessage].
+     */
+    fun hideEmptySyncedPlaylists() {
+        val candidates = emptySyncedPlaylists(libraryStore.loadPlaylists())
+        if (candidates.isEmpty()) {
+            _errorMessage.value = "No empty synced playlists to hide."
+            return
+        }
+        val hidden = libraryStore.hideSyncedPlaylists(candidates.map { it.id })
+        _errorMessage.value = "Hidden $hidden empty playlist(s) — run Resync Library to refresh."
         loadLibrary()
     }
 

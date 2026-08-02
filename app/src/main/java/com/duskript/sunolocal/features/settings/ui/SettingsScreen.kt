@@ -84,6 +84,8 @@ fun SettingsScreen(
     // v0.1.15 — download health + hidden-playlist restore state.
     val storedPlaylists by viewModel.storedPlaylists.collectAsState()
     val hiddenPlaylistCount by viewModel.hiddenPlaylistCount.collectAsState()
+    // v0.1.18 — bulk cleanup: empty synced playlists that can be hidden in one tap.
+    val emptySyncedPlaylistCount by viewModel.emptySyncedPlaylistCount.collectAsState()
     val context = LocalContext.current
     var showCookieDialog by remember { mutableStateOf(false) }
     var showSunoLogin by remember { mutableStateOf(false) }
@@ -263,7 +265,8 @@ fun SettingsScreen(
                 )
             }
 
-            // v0.1.15 — playlist cleanup restore tool.
+            // v0.1.15 — playlist cleanup restore tool; v0.1.18 adds bulk
+            // hiding of empty synced playlists (API/server placeholders).
             Spacer(modifier = Modifier.height(16.dp))
             SectionHeader("Hidden playlists")
             Text(
@@ -275,6 +278,21 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            Spacer(modifier = Modifier.height(8.dp))
+            InfoRow("Empty synced playlists", emptySyncedPlaylistCount.toString())
+            Text(
+                text = "Empty synced playlists may be API/server placeholders. Hiding affects the local library only — " +
+                    "Resync respects hidden IDs, and restoring requires Resync Library to bring them back.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = { viewModel.hideEmptySyncedPlaylists() },
+                enabled = emptySyncedPlaylistCount > 0
+            ) {
+                Text("Hide empty synced playlists")
+            }
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedButton(
                 onClick = { viewModel.restoreHiddenPlaylists() },

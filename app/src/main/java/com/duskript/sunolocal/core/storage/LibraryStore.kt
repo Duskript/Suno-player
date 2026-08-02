@@ -100,6 +100,30 @@ class LibraryStore(context: Context) {
         removePlaylist(id)
     }
 
+    /**
+     * Hide multiple synced playlists from future library resyncs and remove
+     * their local metadata in one pass (v0.1.18 bulk cleanup tool). Blank ids
+     * are ignored and ids are deduped before persisting; already-hidden ids do
+     * not count as newly hidden. No downloaded audio files are deleted.
+     *
+     * @return the number of ids newly hidden by this call.
+     */
+    fun hideSyncedPlaylists(ids: Collection<String>): Int {
+        val validIds = ids.map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        if (validIds.isEmpty()) return 0
+
+        val hidden = loadHiddenPlaylistIds().toMutableSet()
+        val newlyHidden = validIds.filterNot { it in hidden }
+        hidden.addAll(newlyHidden)
+        persistHiddenPlaylistIds(hidden)
+
+        val all = loadAll()
+        val remaining = all.filterNot { it.id in validIds }
+        if (remaining.size != all.size) persistAll(remaining)
+
+        return newlyHidden.size
+    }
+
     /** Make an explicitly re-added playlist eligible for future syncs again. */
     fun unhidePlaylist(id: String) {
         val hidden = loadHiddenPlaylistIds().toMutableSet()
@@ -114,6 +138,9 @@ class LibraryStore(context: Context) {
     fun clearHiddenPlaylists() {
         persistHiddenPlaylistIds(emptySet())
     }
+
+    /** Number of playlists currently hidden from future resyncs. */
+    fun hiddenPlaylistCount(): Int = loadHiddenPlaylistIds().size
 
     private fun persistHiddenPlaylistIds(ids: Set<String>) {
         val array = JSONArray()
@@ -309,3 +336,12 @@ private fun JSONObject.optNullableString(key: String): String? {
     if (!has(key) || isNull(key)) return null
     return optString(key).takeIf { it.isNotBlank() && it != "null" }
 }
+
+/**
+ * v0.1.18 — synced (non-custom) playlists with zero tracks: the bulk-cleanup
+ * candidates for hiding. Suno can report empty playlist rows (API/server
+ * placeholders) that never carry audio. Smart mixes are derived in-memory and
+ * never persisted, so they cannot appear in [playlists].
+ */
+internal fun emptySyncedPlaylists(playlists: List<SunoPlaylistJson>): List<SunoPlaylistJson> =
+    playlists.filter { !it.isCustom && it.tracks.isEmpty() }
