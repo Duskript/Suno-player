@@ -1,11 +1,14 @@
 package com.duskript.sunolocal.core.player
 
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
+import com.duskript.sunolocal.MainActivity
 
 /**
  * Process-wide playback engine shared by the Compose UI and MediaSessionService.
@@ -48,9 +51,26 @@ object SunoPlaybackEngine {
         val appContext = context.applicationContext
         return mediaSessionInstance ?: MediaSession.Builder(appContext, player(appContext))
             .setId("suno-local-playback")
+            // v0.1.17: tapping the media notification / lockscreen artwork opens
+            // the app. Play/pause/next/previous/seek stay exposed automatically:
+            // Media3 derives the session commands from the player's
+            // AvailableCommands, and media-button key events arrive through
+            // SunoMediaButtonReceiver (see AndroidManifest.xml).
+            .setSessionActivity(sessionActivityPendingIntent(appContext))
             .build()
             .also { mediaSessionInstance = it }
     }
+
+    /** PendingIntent that opens MainActivity; used for notification/lockscreen taps. */
+    private fun sessionActivityPendingIntent(context: Context): PendingIntent =
+        PendingIntent.getActivity(
+            context,
+            0,
+            Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
 
     /** True while audio should survive service/activity churn. */
     fun shouldKeepPlaybackAlive(): Boolean {

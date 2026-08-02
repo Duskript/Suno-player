@@ -55,6 +55,23 @@
         </service>
 
         <!--
+            v0.1.17 — exactly one media button receiver so MediaSessionCompat
+            stops logging "Couldn't find a unique registered media button
+            receiver". SunoMediaButtonReceiver extends Media3's
+            MediaButtonReceiver, which resolves SunoPlaybackService (via the
+            androidx.media3.session.MediaSessionService action), starts it as a
+            foreground service, and the MediaSession maps headset/lockscreen
+            play/pause/next/previous/seek key events onto the shared ExoPlayer.
+        -->
+        <receiver
+            android:name=".core.player.SunoMediaButtonReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
+
+        <!--
             v0.1.15 — pause playback when a wired/Bluetooth audio route is
             unplugged. ACTION_AUDIO_BECOMING_NOISY is exempt from the Android 8+
             implicit-broadcast manifest restrictions, so a static receiver works

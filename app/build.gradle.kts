@@ -12,11 +12,13 @@ android {
         applicationId = "com.duskript.sunolocal"
         minSdk = 26
         targetSdk = 35
-        // Remove-dialog dismiss hotfix: versionCode 17, versionName 0.1.16-remove-dialog-dismiss.
-        // Clears the ViewModel heads-up message when the user taps OK/dismiss,
-        // preventing remove-playlist confirmation popups from reopening.
-        versionCode = 17
-        versionName = "0.1.16-remove-dialog-dismiss"
+        // Now-playing controls: versionCode 18, versionName 0.1.17-now-playing-controls.
+        // Registers exactly one media button receiver (SunoMediaButtonReceiver,
+        // a Media3 MediaButtonReceiver subclass) so headset/lockscreen
+        // play/pause/next/previous/seek key events route into the shared
+        // MediaSessionService; the session notification tap opens the app.
+        versionCode = 18
+        versionName = "0.1.17-now-playing-controls"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
