@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.LibraryMusic
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.QueueMusic
@@ -74,6 +75,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -145,6 +147,9 @@ fun LibraryScreen(
     var selectedTrackDetails by remember { mutableStateOf<SunoTrack?>(null) }
     var showQueueSheet by remember { mutableStateOf(false) }
     val queueSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    // v0.1.19 — library utility actions (add playlist, backup, shuffle) live in
+    // a bottom sheet opened from the top bar so the main page stays library-first.
+    var showLibraryActionsSheet by remember { mutableStateOf(false) }
 
     // Batch 4 — playlist manager dialog state: rename (text input), delete
     // (confirm with title), duplicate (name input, defaulted to "<title> Copy").
@@ -457,6 +462,33 @@ fun LibraryScreen(
         }
     }
 
+    // v0.1.19 — Library actions sheet (add playlist, shuffle, backup import/export).
+    // The SAF launchers are created above and reused unchanged; the sheet only
+    // routes taps to them and dismisses itself before launching the document
+    // picker, so the export/import flows behave exactly as before.
+    if (showLibraryActionsSheet) {
+        LibraryActionsSheet(
+            shuffleEnabled = shuffleEnabled,
+            onAddPlaylist = {
+                showLibraryActionsSheet = false
+                showAddPlaylistDialog = true
+            },
+            onShuffle = {
+                showLibraryActionsSheet = false
+                viewModel.toggleShuffle()
+            },
+            onExportBackup = {
+                showLibraryActionsSheet = false
+                exportBackupLauncher.launch(backupFileName())
+            },
+            onImportBackup = {
+                showLibraryActionsSheet = false
+                importBackupLauncher.launch(arrayOf("application/json"))
+            },
+            onDismiss = { showLibraryActionsSheet = false }
+        )
+    }
+
     if (showErrorDialog && currentError != null) {
         AlertDialog(
             onDismissRequest = {
@@ -521,8 +553,13 @@ fun LibraryScreen(
                     IconButton(onClick = { showQueueSheet = true }) {
                         Icon(Icons.Filled.QueueMusic, contentDescription = "Open playback queue")
                     }
-                    IconButton(onClick = { showAddPlaylistDialog = true }) {
-                        Icon(Icons.Filled.AddCircle, contentDescription = "Add playlist (local mix or URL)")
+                    // v0.1.19 — utility actions (add playlist, backup, shuffle)
+                    // moved into a bottom sheet so the main column stays clean.
+                    IconButton(onClick = { showLibraryActionsSheet = true }) {
+                        Icon(
+                            Icons.Filled.MoreVert,
+                            contentDescription = "More library actions (add playlist, backup, shuffle)"
+                        )
                     }
                     IconButton(onClick = onNavigateToSettings) {
                         Icon(Icons.Filled.Settings, contentDescription = "Settings")
@@ -562,30 +599,18 @@ fun LibraryScreen(
             if (!cookieConfigured) {
                 CookieSetupCard(onSetCookie = { showCookieDialog = true })
             } else {
-                LibraryControls(
-                    shuffleEnabled = shuffleEnabled,
+                // v0.1.19 — compact one-line sync/download-health strip. Backup,
+                // add-playlist, and shuffle live in the top-bar actions sheet.
+                CompactLibraryStatus(
                     syncError = syncStatus.lastError,
                     lastSyncSummary = lastSyncSummary,
                     // v0.1.15 — download health line: stored playlists only
                     // (smart mixes are derived, not synced).
                     playlistCount = storedPlaylists.size,
                     totalTrackCount = storedPlaylists.sumOf { it.trackCount },
-                    downloadedTrackCount = storedPlaylists.sumOf { it.downloadedTrackCount },
-                    onShuffle = viewModel::toggleShuffle,
-                    onAddPlaylist = { showAddPlaylistDialog = true }
+                    downloadedTrackCount = storedPlaylists.sumOf { it.downloadedTrackCount }
                 )
             }
-
-            // Batch 6 — backup actions are always available (even before the
-            // cookie is configured, so local custom mixes can be exported).
-            BackupActionsRow(
-                onExportBackup = {
-                    exportBackupLauncher.launch(backupFileName())
-                },
-                onImportBackup = {
-                    importBackupLauncher.launch(arrayOf("application/json"))
-                }
-            )
 
             // v0.1.15 — Resume where left off: shown only when a saved playback
             // snapshot exists and nothing is currently loaded in the player.
@@ -694,13 +719,21 @@ fun LibraryScreen(
 
 @Composable
 private fun CookieSetupCard(onSetCookie: () -> Unit) {
+    // v0.1.19 — compacted: smaller padding/type and capped text lines so the
+    // card does not dominate the landing page. No hardcoded system-bar padding.
     Card(
-        modifier = Modifier.fillMaxWidth().padding(16.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         shape = RoundedCornerShape(12.dp)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Set up your Suno cookie to sync metadata, lyrics, art, and audio.")
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = "Set up your Suno cookie to sync metadata, lyrics, art, and audio.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
             Spacer(modifier = Modifier.height(8.dp))
             Button(onClick = onSetCookie, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Filled.CloudDownload, contentDescription = null)
@@ -711,131 +744,163 @@ private fun CookieSetupCard(onSetCookie: () -> Unit) {
     }
 }
 
+/**
+ * v0.1.19 — compact sync/download-health strip for the Library landing page.
+ * Sync errors stay prominent; the last-sync summary collapses to a one- or
+ * two-line strip (full details live in Settings → Library Sync). Add playlist,
+ * shuffle, and backup actions moved to LibraryActionsSheet instead of here.
+ */
 @Composable
-private fun LibraryControls(
-    shuffleEnabled: Boolean,
+private fun CompactLibraryStatus(
     syncError: String?,
     lastSyncSummary: SyncSummary?,
     // v0.1.15 — download health line counts (stored library only).
     playlistCount: Int,
     totalTrackCount: Int,
-    downloadedTrackCount: Int,
-    onShuffle: () -> Unit,
-    onAddPlaylist: () -> Unit
+    downloadedTrackCount: Int
 ) {
-    Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-        if (syncError != null) {
-            Card(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
-            ) {
-                Text(
-                    text = "Sync error: $syncError",
-                    modifier = Modifier.padding(12.dp),
-                    color = MaterialTheme.colorScheme.onErrorContainer
-                )
-            }
-        }
-        lastSyncSummary?.let { summary ->
-            LastSyncCard(
-                summary = summary,
-                playlistCount = playlistCount,
-                totalTrackCount = totalTrackCount,
-                downloadedTrackCount = downloadedTrackCount
+    if (syncError != null) {
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+        ) {
+            Text(
+                text = "Sync error: $syncError",
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onErrorContainer
             )
         }
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        return
+    }
+    lastSyncSummary?.let { summary ->
+        val failed = summary.hasFailures
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (failed) MaterialTheme.colorScheme.errorContainer
+                else MaterialTheme.colorScheme.surfaceVariant
+            )
         ) {
-            OutlinedButton(onClick = onAddPlaylist, modifier = Modifier.weight(1f)) {
-                Icon(Icons.Filled.AddCircle, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
-                Text("Add Playlist")
-            }
-            OutlinedButton(onClick = onShuffle, modifier = Modifier.weight(1f)) {
-                Icon(Icons.Filled.Shuffle, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
-                Text(if (shuffleEnabled) "Shuffle ON" else "Shuffle")
-            }
+            Text(
+                text = buildString {
+                    append(
+                        if (summary.success) "Last sync: ${summary.timeLabel()}"
+                        else "Last sync failed: ${summary.timeLabel()}"
+                    )
+                    append(" • ")
+                    append(
+                        buildHealthLine(
+                            playlistCount = playlistCount,
+                            totalTrackCount = totalTrackCount,
+                            downloadedTrackCount = downloadedTrackCount,
+                            failedCount = summary.failedCount
+                        )
+                    )
+                    if (summary.downloadedCount > 0 || summary.skippedCount > 0) {
+                        append(" • ")
+                        append(buildSummaryLine(summary))
+                    }
+                },
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (failed) MaterialTheme.colorScheme.onErrorContainer
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
 
 /**
- * Batch 6 — Export Backup / Import Backup actions. Both use SAF document
- * intents (ACTION_CREATE_DOCUMENT / ACTION_OPEN_DOCUMENT), so no storage
- * permissions are needed; the user picks the target file per action.
+ * v0.1.19 — Library actions bottom sheet, opened from the top-bar More action.
+ * Add playlist, shuffle, and SAF backup import/export no longer occupy the
+ * main column; they are one tap away without competing with library content.
+ * Export/import still use the SAF launchers created in LibraryScreen, so the
+ * document-picker flows are unchanged.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun BackupActionsRow(
+private fun LibraryActionsSheet(
+    shuffleEnabled: Boolean,
+    onAddPlaylist: () -> Unit,
+    onShuffle: () -> Unit,
     onExportBackup: () -> Unit,
-    onImportBackup: () -> Unit
+    onImportBackup: () -> Unit,
+    onDismiss: () -> Unit
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        OutlinedButton(onClick = onExportBackup, modifier = Modifier.weight(1f)) {
-            Icon(Icons.Filled.CloudDownload, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
-            Text("Export Backup")
-        }
-        OutlinedButton(onClick = onImportBackup, modifier = Modifier.weight(1f)) {
-            Icon(Icons.Filled.CloudUpload, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
-            Text("Import Backup")
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
+            Text(
+                text = "Library actions",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 24.dp)
+            )
+            Text(
+                text = "Manage playlists, back up or restore your library, and toggle shuffle.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(start = 24.dp, end = 24.dp, top = 4.dp, bottom = 8.dp)
+            )
+            HorizontalDivider()
+            LibraryActionRow(
+                icon = Icons.Filled.AddCircle,
+                label = "Add playlist",
+                onClick = onAddPlaylist
+            )
+            LibraryActionRow(
+                icon = Icons.Filled.Shuffle,
+                label = if (shuffleEnabled) "Shuffle ON" else "Shuffle",
+                onClick = onShuffle
+            )
+            HorizontalDivider()
+            Text(
+                text = "Backup",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+            )
+            LibraryActionRow(
+                icon = Icons.Filled.CloudDownload,
+                label = "Export backup",
+                onClick = onExportBackup
+            )
+            LibraryActionRow(
+                icon = Icons.Filled.CloudUpload,
+                label = "Import backup",
+                onClick = onImportBackup
+            )
         }
     }
 }
 
-/** Compact last-sync status on the library page (full details live in Settings). */
+/** Single tappable row inside LibraryActionsSheet. */
 @Composable
-private fun LastSyncCard(
-    summary: SyncSummary,
-    playlistCount: Int,
-    totalTrackCount: Int,
-    downloadedTrackCount: Int
+private fun LibraryActionRow(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit
 ) {
-    val failed = summary.hasFailures
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (failed) MaterialTheme.colorScheme.errorContainer
-            else MaterialTheme.colorScheme.surfaceVariant
-        )
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                text = if (summary.success) "Last sync: ${summary.timeLabel()}"
-                else "Last sync failed: ${summary.timeLabel()}",
-                style = MaterialTheme.typography.labelMedium,
-                color = if (failed) MaterialTheme.colorScheme.onErrorContainer
-                else MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            // v0.1.15 — download health line: "N playlists • N tracks • N downloaded • N failed".
-            Text(
-                text = buildHealthLine(
-                    playlistCount = playlistCount,
-                    totalTrackCount = totalTrackCount,
-                    downloadedTrackCount = downloadedTrackCount,
-                    failedCount = summary.failedCount
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.SemiBold,
-                color = if (failed) MaterialTheme.colorScheme.onErrorContainer
-                else MaterialTheme.colorScheme.onSurface
-            )
-            Text(
-                text = buildSummaryLine(summary),
-                style = MaterialTheme.typography.bodySmall,
-                color = if (failed) MaterialTheme.colorScheme.onErrorContainer
-                else MaterialTheme.colorScheme.onSurface
-            )
-            summary.error?.let { error ->
-                Text(
-                    text = error,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onErrorContainer
-                )
-            }
-        }
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface
+        )
     }
 }
 

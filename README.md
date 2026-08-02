@@ -64,7 +64,7 @@ com.duskript.sunolocal/
    ```
 4. Install the APK on your device/emulator (API 26+).
 
-> **Current build:** `0.1.18-playlist-cleanup-tools` (versionCode 19) — builds with JDK 17+ and Android SDK platform 35 via the Gradle wrapper. Requires JDK 17+ (Android Gradle Plugin 8.7) and the corresponding SDK platform. Playlist cleanup tools: Settings → **Hidden playlists** now shows the empty synced playlist count and a **Hide empty synced playlists** button (enabled when such playlists exist) that bulk-hides every non-custom, non-smart-mix synced playlist with zero tracks — Suno can report empty playlist rows as API/server placeholders that never carry audio. Hiding affects the local library only, Resync respects hidden IDs, and **Restore hidden playlists** still clears the hidden list so a Resync Library run brings them back. Downloaded audio files are never deleted by cleanup tools.
+> **Current build:** `0.1.19-main-screen-cleanup` (versionCode 20) — builds with JDK 17+ and Android SDK platform 35 via the Gradle wrapper. Requires JDK 17+ (Android Gradle Plugin 8.7) and the corresponding SDK platform. Main screen cleanup: the Library landing page is library-first again — **Add playlist**, **Shuffle**, and **Export backup** / **Import backup** moved out of the permanent main column into the top-bar **Library actions** sheet, the cookie setup card is more compact, and last-sync/download health collapsed to a one-line status strip, so playlists and tracks move up the screen. All existing flows (cookie dialog, add playlist, backup import/export via SAF, resume playback, queue, track details) are unchanged.
 
 ## Suno API Status
 

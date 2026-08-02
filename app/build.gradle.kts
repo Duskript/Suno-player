@@ -12,12 +12,13 @@ android {
         applicationId = "com.duskript.sunolocal"
         minSdk = 26
         targetSdk = 35
-        // Playlist cleanup tools: versionCode 19, versionName 0.1.18-playlist-cleanup-tools.
-        // Bulk-hides empty synced playlists (API/server placeholders) from the
-        // Settings > Hidden playlists section and keeps the existing single
-        // remove/hide and restore-all hidden-playlist tools.
-        versionCode = 19
-        versionName = "0.1.18-playlist-cleanup-tools"
+        // Main screen cleanup: versionCode 20, versionName 0.1.19-main-screen-cleanup.
+        // The Library landing page is library-first again: add playlist, backup
+        // import/export, and shuffle moved into the top-bar Library actions
+        // sheet, the cookie card is more compact, and last-sync/download health
+        // collapsed to a one-line strip so playlists/tracks move up the screen.
+        versionCode = 20
+        versionName = "0.1.19-main-screen-cleanup"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
