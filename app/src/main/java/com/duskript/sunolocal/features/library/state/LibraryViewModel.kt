@@ -14,6 +14,7 @@ import com.duskript.sunolocal.core.download.SunoDownloadWorker
 import com.duskript.sunolocal.core.network.SunoApiClient
 import com.duskript.sunolocal.core.network.SunoApiException
 import com.duskript.sunolocal.core.player.LocalAudioPlayer
+import com.duskript.sunolocal.core.player.PlaybackDiagnostics
 import com.duskript.sunolocal.core.player.PlaybackState
 import com.duskript.sunolocal.core.player.PlaybackStateStore
 import com.duskript.sunolocal.core.storage.FavoritesStore
@@ -766,6 +767,8 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     val playbackProgress: StateFlow<Float> = audioPlayer.playbackProgress
     val repeatMode: StateFlow<Int> = audioPlayer.repeatMode
     val playbackErrorMessage: StateFlow<String?> = audioPlayer.playbackErrorMessage
+    // v0.1.20 — playback lifetime diagnostics for Settings (Batch A).
+    val playbackDiagnostics: StateFlow<PlaybackDiagnostics> = audioPlayer.playbackDiagnostics
 
     fun seekToProgress(progress: Float) = audioPlayer.seekToProgress(progress)
     fun toggleRepeatMode() = audioPlayer.toggleRepeatMode()

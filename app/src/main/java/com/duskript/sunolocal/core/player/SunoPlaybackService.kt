@@ -16,15 +16,31 @@ class SunoPlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         SunoPlaybackEngine.mediaSession(this)
+        // v0.1.20 — instrumentation: proves the service came up and whether the
+        // shared engine already considers playback worth keeping alive.
+        Log.i(
+            TAG,
+            "Service created; keepAlive=${SunoPlaybackEngine.shouldKeepPlaybackAlive()}"
+        )
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession =
-        SunoPlaybackEngine.mediaSession(this)
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession {
+        // Controller package can be null (e.g. media key events from the
+        // system), so the log stays null-tolerant.
+        val controller = controllerInfo.packageName?.takeIf { it.isNotBlank() } ?: "unknown"
+        Log.i(
+            TAG,
+            "Session requested by controller=$controller; " +
+                "keepAlive=${SunoPlaybackEngine.shouldKeepPlaybackAlive()}"
+        )
+        return SunoPlaybackEngine.mediaSession(this)
+    }
 
     override fun onTaskRemoved(rootIntent: android.content.Intent?) {
         // Swiping the task away should not kill music that is actively playing.
         // Media apps are expected to keep playback/session state alive until the
         // user pauses/stops, so leave the shared engine alone here.
+        logLifetimeSummary("Task removed")
         Log.i(TAG, "Task removed; keeping shared playback engine alive")
         super.onTaskRemoved(rootIntent)
     }
@@ -34,6 +50,7 @@ class SunoPlaybackService : MediaSessionService() {
         // and player are still valid. Releasing the process-wide ExoPlayer here
         // causes the reported bug: playback stops a little while after the app
         // backgrounds. Only release when the player is truly idle.
+        logLifetimeSummary("Service destroyed")
         if (SunoPlaybackEngine.shouldKeepPlaybackAlive()) {
             Log.i(TAG, "Service destroyed while playback active; preserving shared player")
         } else {
@@ -41,6 +58,20 @@ class SunoPlaybackService : MediaSessionService() {
             SunoPlaybackEngine.releaseIfIdle()
         }
         super.onDestroy()
+    }
+
+    /** Compact isPlaying/playWhenReady/playbackState/keepAlive snapshot for logcat. */
+    private fun logLifetimeSummary(event: String) {
+        val player = SunoPlaybackEngine.currentPlayerOrNull()
+        val state = player?.playbackState
+            ?.let { PlaybackDiagnostics.playerStateLabel(it) }
+            ?: "no-player"
+        Log.i(
+            TAG,
+            "$event summary: isPlaying=${player?.isPlaying}, " +
+                "playWhenReady=${player?.playWhenReady}, playbackState=$state, " +
+                "keepAlive=${SunoPlaybackEngine.shouldKeepPlaybackAlive()}"
+        )
     }
 
     private companion object {

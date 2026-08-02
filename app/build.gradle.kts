@@ -12,13 +12,15 @@ android {
         applicationId = "com.duskript.sunolocal"
         minSdk = 26
         targetSdk = 35
-        // Main screen cleanup: versionCode 20, versionName 0.1.19-main-screen-cleanup.
-        // The Library landing page is library-first again: add playlist, backup
-        // import/export, and shuffle moved into the top-bar Library actions
-        // sheet, the cookie card is more compact, and last-sync/download health
-        // collapsed to a one-line strip so playlists/tracks move up the screen.
-        versionCode = 20
-        versionName = "0.1.19-main-screen-cleanup"
+        // v0.1.20-playback-lifetime-hardening: versionCode 21. Playback lifetime
+        // hardening batch: Settings gains Player Diagnostics (track, state,
+        // isPlaying/playWhenReady, queue/index, repeat/shuffle, position,
+        // keep-alive, last error) and Media Controls status (Android 13+
+        // notification permission + Media3 playback channel), plus service/
+        // engine/player lifecycle instrumentation logs to prove screen-off
+        // playback. No media-notification provider changes in this batch.
+        versionCode = 21
+        versionName = "0.1.20-playback-lifetime-hardening"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

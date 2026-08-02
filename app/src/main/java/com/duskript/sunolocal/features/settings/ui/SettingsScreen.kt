@@ -1,8 +1,16 @@
 package com.duskript.sunolocal.features.settings.ui
 
+import android.Manifest
 import android.annotation.SuppressLint
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import android.util.Log
 import android.webkit.CookieManager
 import android.webkit.ConsoleMessage
@@ -45,6 +53,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,11 +61,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.duskript.sunolocal.BuildConfig
+import com.duskript.sunolocal.core.player.PlaybackDiagnostics
 import com.duskript.sunolocal.domain.model.COOKIE_EXPIRED_GUIDANCE
 import com.duskript.sunolocal.domain.model.SyncSummary
 import com.duskript.sunolocal.domain.model.isCookieAuthError
 import com.duskript.sunolocal.features.library.state.LibraryViewModel
+import java.util.Locale
 
 private const val TAG = "SunoLoginWebView"
 private const val SUNO_LOGIN_URL = "https://suno.com/login"
@@ -86,6 +100,9 @@ fun SettingsScreen(
     val hiddenPlaylistCount by viewModel.hiddenPlaylistCount.collectAsState()
     // v0.1.18 — bulk cleanup: empty synced playlists that can be hidden in one tap.
     val emptySyncedPlaylistCount by viewModel.emptySyncedPlaylistCount.collectAsState()
+    // v0.1.20 — playback lifetime diagnostics + media-control status so
+    // screen-off/background failures can be diagnosed from Settings.
+    val playbackDiagnostics by viewModel.playbackDiagnostics.collectAsState()
     val context = LocalContext.current
     var showCookieDialog by remember { mutableStateOf(false) }
     var showSunoLogin by remember { mutableStateOf(false) }
@@ -306,6 +323,17 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp)
             )
+
+            // v0.1.20 — Player Diagnostics: a support surface for "why did it
+            // stop?" rather than a raw debug dump, plus media-control status so
+            // missing notification permission / disabled channel is obvious.
+            Spacer(modifier = Modifier.height(24.dp))
+            SectionHeader("Player Diagnostics")
+            PlayerDiagnosticsSection(playbackDiagnostics)
+
+            Spacer(modifier = Modifier.height(24.dp))
+            SectionHeader("Media Controls")
+            MediaControlStatusSection(context)
 
             Spacer(modifier = Modifier.height(24.dp))
             SectionHeader("Updates")
@@ -687,5 +715,168 @@ private fun DownloadHealthSection(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+    }
+}
+
+// v0.1.20 — Player Diagnostics + Media Controls (playback lifetime hardening).
+
+/**
+ * Media3 1.5.1 DefaultMediaNotificationProvider posts its playback notification
+ * on this channel id (name resource default_notification_channel_name); the app
+ * does not override the provider, so this is the channel to inspect. Verified
+ * against the media3-session 1.5.1 AAR (DefaultMediaNotificationProvider.class).
+ */
+private const val MEDIA3_NOTIFICATION_CHANNEL_ID = "default_channel_id"
+
+/**
+ * v0.1.20 — Playback lifetime diagnostics. A support surface for "why did it
+ * stop?", not a debug dump: shows what the shared ExoPlayer/session are doing
+ * right now, including whether the engine considers playback worth keeping
+ * alive in the background.
+ */
+@Composable
+private fun PlayerDiagnosticsSection(diagnostics: PlaybackDiagnostics) {
+    InfoRow("Track", diagnostics.trackTitle ?: "none")
+    InfoRow("Player state", diagnostics.playerStateLabel)
+    InfoRow("Playing", if (diagnostics.isPlaying) "Yes" else "No")
+    InfoRow("Play when ready", if (diagnostics.playWhenReady) "Yes" else "No")
+    InfoRow(
+        "Queue",
+        if (diagnostics.queueLength > 0) {
+            "${diagnostics.queueLength} tracks — index ${diagnostics.currentIndex + 1}"
+        } else {
+            "Empty"
+        }
+    )
+    InfoRow("Repeat", diagnostics.repeatModeLabel)
+    InfoRow("Shuffle", if (diagnostics.shuffleEnabled) "On" else "Off")
+    InfoRow("Position", formatPosition(diagnostics.positionMs, diagnostics.durationMs))
+    InfoRow(
+        "Background keep-alive",
+        if (diagnostics.keepAlive) "Keep alive — playback protected" else "Idle — may be released"
+    )
+    diagnostics.lastError?.let { error ->
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "Last error: $error",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error
+        )
+    }
+    Text(
+        text = "If playback stops with the screen off, capture logcat tags " +
+            "SunoPlaybackService / SunoPlaybackEngine / LocalAudioPlayer and share them.",
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 4.dp)
+    )
+}
+
+/**
+ * v0.1.20 — Media-control status: Android 13+ notification permission and the
+ * Media3 playback notification channel. Missing permission or a disabled
+ * channel means lockscreen/notification/headset controls may not appear even
+ * though in-app audio keeps playing. Refreshes on ON_RESUME so the status
+ * updates after the user returns from system notification settings.
+ */
+@Composable
+private fun MediaControlStatusSection(context: Context) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var permissionGranted by remember { mutableStateOf(notificationPermissionGranted(context)) }
+    var channelStatus by remember { mutableStateOf(playbackChannelStatus(context)) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                permissionGranted = notificationPermissionGranted(context)
+                channelStatus = playbackChannelStatus(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    InfoRow(
+        "Notification permission",
+        if (permissionGranted) "Granted" else "Missing — outside-app controls may not appear"
+    )
+    if (!permissionGranted) {
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedButton(onClick = { openAppNotificationSettings(context) }) {
+            Text("Open Notification Settings")
+        }
+        Text(
+            text = "Notifications are optional for in-app playback, but lockscreen, " +
+                "notification and headset controls need them.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        Spacer(modifier = Modifier.height(12.dp))
+        InfoRow("Playback notification channel", channelStatus)
+    }
+    if (!permissionGranted || channelStatus.startsWith("Disabled")) {
+        Text(
+            text = "Outside-app controls may not appear until notifications are enabled.",
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 8.dp)
+        )
+    }
+}
+
+/** True when POST_NOTIFICATIONS is granted (or the OS predates Android 13). */
+private fun notificationPermissionGranted(context: Context): Boolean =
+    Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+        context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
+        PackageManager.PERMISSION_GRANTED
+
+/** Label for the Media3 playback notification channel, or why it is not shown. */
+private fun playbackChannelStatus(context: Context): String {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return "Unused on this Android version"
+    val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+        ?: return "Unavailable"
+    val channel = manager.getNotificationChannel(MEDIA3_NOTIFICATION_CHANNEL_ID)
+        ?: return "Missing — created on first playback"
+    return when (channel.importance) {
+        NotificationManager.IMPORTANCE_NONE -> "Disabled — outside-app controls may not appear"
+        NotificationManager.IMPORTANCE_MIN -> "Enabled — minimal"
+        NotificationManager.IMPORTANCE_LOW -> "Enabled — low"
+        NotificationManager.IMPORTANCE_DEFAULT -> "Enabled — default"
+        NotificationManager.IMPORTANCE_HIGH -> "Enabled — high"
+        else -> "Enabled — unknown importance"
+    }
+}
+
+/** Opens per-app notification settings, falling back to app details settings. */
+private fun openAppNotificationSettings(context: Context) {
+    try {
+        context.startActivity(
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+        )
+    } catch (e: Exception) {
+        try {
+            context.startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                    .setData(Uri.fromParts("package", context.packageName, null))
+            )
+        } catch (ignored: Exception) {
+            // No settings surface available; in-app playback still works.
+        }
+    }
+}
+
+/** "m:ss / m:ss" when duration is known, "m:ss" otherwise, "—" when nothing loaded. */
+private fun formatPosition(positionMs: Long, durationMs: Long): String {
+    if (positionMs <= 0L && durationMs <= 0L) return "—"
+    val pos = positionMs.coerceAtLeast(0L) / 1000
+    return if (durationMs > 0L) {
+        val dur = durationMs / 1000
+        String.format(Locale.US, "%d:%02d / %d:%02d", pos / 60, pos % 60, dur / 60, dur % 60)
+    } else {
+        String.format(Locale.US, "%d:%02d", pos / 60, pos % 60)
     }
 }

@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -65,6 +66,12 @@ class LocalAudioPlayer(context: Context) {
     private val _playbackErrorMessage = MutableStateFlow<String?>(null)
     val playbackErrorMessage: StateFlow<String?> = _playbackErrorMessage.asStateFlow()
 
+    // v0.1.20 — playback lifetime diagnostics snapshot for Settings. Derived
+    // from player state on every event/position refresh; StateFlow dedupes
+    // identical snapshots so composition only recomposes on real changes.
+    private val _playbackDiagnostics = MutableStateFlow(PlaybackDiagnostics())
+    val playbackDiagnostics: StateFlow<PlaybackDiagnostics> = _playbackDiagnostics.asStateFlow()
+
     private val trackMap = mutableMapOf<String, SunoTrack>()
 
     /**
@@ -95,6 +102,8 @@ class LocalAudioPlayer(context: Context) {
             syncStateFromPlayer()
             updatePlaybackPosition()
             persistPlaybackState()
+            // v0.1.20 — transition-only instrumentation (never on the 500ms tick).
+            Log.i(TAG, if (isPlaying) "Playback started" else "Playback paused/stopped")
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -112,6 +121,9 @@ class LocalAudioPlayer(context: Context) {
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            // v0.1.20 — log the error code before surfacing it, so logcat has
+            // the errorCodeName even when the message is long or truncated.
+            Log.e(TAG, "Player error: ${error.errorCodeName} — ${error.message ?: "no detail"}")
             handlePlaybackError(error)
         }
 
@@ -122,6 +134,13 @@ class LocalAudioPlayer(context: Context) {
             if (playbackState == Player.STATE_READY) {
                 failedMediaItemIds.clear()
             }
+            // v0.1.20 — transition-only instrumentation; STATE_* changes are
+            // rare enough to log without spamming (not the 500ms tick).
+            Log.i(
+                TAG,
+                "Player state -> ${PlaybackDiagnostics.playerStateLabel(playbackState)} " +
+                    "(isPlaying=${exoPlayer.isPlaying}, playWhenReady=${exoPlayer.playWhenReady})"
+            )
         }
 
         override fun onEvents(player: Player, events: Player.Events) {
@@ -383,6 +402,7 @@ class LocalAudioPlayer(context: Context) {
             ?: trackMap[exoPlayer.currentMediaItem?.mediaId]
             ?: _queue.value.getOrNull(exoPlayer.currentMediaItemIndex)
         _currentTrack.value = currentTrack
+        refreshPlaybackDiagnostics()
     }
 
     /** Refreshes position/duration/progress flows from the player. */
@@ -399,6 +419,29 @@ class LocalAudioPlayer(context: Context) {
         } else {
             0f
         }
+        refreshPlaybackDiagnostics()
+    }
+
+    /**
+     * v0.1.20 — rebuilds the Settings diagnostics snapshot from current player
+     * state. Called on every event/position refresh; StateFlow dedupes equal
+     * values so this is cheap and only emits on real changes.
+     */
+    private fun refreshPlaybackDiagnostics() {
+        _playbackDiagnostics.value = PlaybackDiagnostics(
+            trackTitle = _currentTrack.value?.title,
+            playerStateLabel = PlaybackDiagnostics.playerStateLabel(exoPlayer.playbackState),
+            isPlaying = exoPlayer.isPlaying,
+            playWhenReady = exoPlayer.playWhenReady,
+            queueLength = exoPlayer.mediaItemCount,
+            currentIndex = exoPlayer.currentMediaItemIndex,
+            repeatModeLabel = PlaybackDiagnostics.repeatModeLabel(exoPlayer.repeatMode),
+            shuffleEnabled = exoPlayer.shuffleModeEnabled,
+            durationMs = _playbackDurationMs.value,
+            positionMs = _playbackPositionMs.value,
+            lastError = _playbackErrorMessage.value,
+            keepAlive = SunoPlaybackEngine.shouldKeepPlaybackAlive()
+        )
     }
 
     private fun rebuildTrackMap(tracks: List<SunoTrack>) {
@@ -432,5 +475,6 @@ class LocalAudioPlayer(context: Context) {
     private companion object {
         const val POSITION_REFRESH_INTERVAL_MS = 500L
         const val POSITION_PERSIST_EVERY_N_TICKS = 10
+        const val TAG = "LocalAudioPlayer"
     }
 }
