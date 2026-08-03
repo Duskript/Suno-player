@@ -8,6 +8,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.duskript.sunolocal.BuildConfig
 import com.duskript.sunolocal.SunoLocalApplication
+import com.duskript.sunolocal.core.auth.AuthFlowStatus
 import com.duskript.sunolocal.core.auth.CookieStore
 import com.duskript.sunolocal.core.auth.WebViewCookieBridge
 import com.duskript.sunolocal.core.download.SunoDownloadWorker
@@ -166,6 +167,53 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         return result.saved || result.captured
     }
 
+    /**
+     * v0.1.23 — capture the in-app WebView cookie jar and automatically
+     * validate it against playlist/me. This replaces the old two-step
+     * "Done, then Test Connection": Settings → Login to Suno → Done now shows
+     * "Captured, validating…" and then "Valid — Suno playlist/me returned
+     * HTTP 200." (or login-required guidance) with no extra tap. Library data
+     * is never cleared, and no cookie/JWT material is ever shown.
+     */
+    fun captureAndValidateWebViewCookie() {
+        _connectionTestStatus.value = AuthFlowStatus.STATUS_CAPTURING
+        val result = WebViewCookieBridge.refreshCookieStore(cookieStore)
+
+        if (!result.saved && !result.captured) {
+            // No WebView __session at all.
+            if (!cookieStore.isConfigured()) {
+                refreshCookieStatus(valid = false)
+                _connectionTestStatus.value = AuthFlowStatus.STATUS_NO_WEBVIEW_NO_STORED
+                _errorMessage.value = null
+                return
+            }
+            // A stored cookie exists — validate it; it may still be usable.
+            _connectionTestStatus.value = AuthFlowStatus.STATUS_NO_NEW_WEBVIEW_VALIDATING
+        } else {
+            refreshCookieStatus()
+            _connectionTestStatus.value = if (result.saved) {
+                AuthFlowStatus.STATUS_CAPTURED_VALIDATING
+            } else {
+                AuthFlowStatus.STATUS_CAPTURED_KEPT_STORED
+            }
+            _errorMessage.value = null
+        }
+
+        viewModelScope.launch {
+            try {
+                apiClient.testConnection()
+                _connectionTestStatus.value = AuthFlowStatus.STATUS_VALID
+                refreshCookieStatus(valid = true)
+            } catch (e: SunoApiException) {
+                _connectionTestStatus.value = AuthFlowStatus.statusForRejection(e.httpCode)
+                refreshCookieStatus(valid = false)
+            } catch (e: Exception) {
+                _connectionTestStatus.value = AuthFlowStatus.statusForFailure(e.message)
+                refreshCookieStatus(valid = false)
+            }
+        }
+    }
+
     fun testConnection() {
         if (!cookieStore.isConfigured()) {
             refreshCookieStatus()
@@ -177,18 +225,13 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             try {
                 apiClient.testConnection()
-                _connectionTestStatus.value = "Valid — Suno playlist/me returned HTTP 200."
+                _connectionTestStatus.value = AuthFlowStatus.STATUS_VALID
                 refreshCookieStatus(valid = true)
             } catch (e: SunoApiException) {
-                val status = when (e.httpCode) {
-                    401 -> "Expired — Suno returned HTTP 401. Tap Login to Suno to refresh."
-                    403 -> "Rejected — Suno returned HTTP 403 for this session."
-                    else -> "Failed — ${e.message ?: "Suno connection test failed"}"
-                }
-                _connectionTestStatus.value = status
+                _connectionTestStatus.value = AuthFlowStatus.statusForRejection(e.httpCode)
                 refreshCookieStatus(valid = false)
             } catch (e: Exception) {
-                _connectionTestStatus.value = "Failed — ${e.message ?: "Suno connection test failed"}"
+                _connectionTestStatus.value = AuthFlowStatus.statusForFailure(e.message)
                 refreshCookieStatus(valid = false)
             }
         }

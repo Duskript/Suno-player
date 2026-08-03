@@ -161,7 +161,17 @@ fun SettingsScreen(
         SunoLoginScreen(
             viewModel = viewModel,
             onDone = {
-                viewModel.captureWebViewCookie()
+                // v0.1.23-auth-refresh-flow: Done now captures AND validates
+                // automatically. captureAndValidateWebViewCookie() adopts the
+                // WebView cookie jar via the safe no-overwrite rule, then
+                // probes playlist/me. The async result lands in
+                // connectionTestStatus, which Settings re-collects as soon as
+                // the login screen closes, so the "Captured, validating…" →
+                // "Valid — Suno playlist/me returned HTTP 200." transition is
+                // visible with no separate Test Connection tap. If the session
+                // is rejected, the status text carries the Login to Suno
+                // recovery action. Library data is never cleared here.
+                viewModel.captureAndValidateWebViewCookie()
                 showSunoLogin = false
             },
             onBack = { showSunoLogin = false }
@@ -202,7 +212,9 @@ fun SettingsScreen(
             InfoRow("Status", cookieStatus)
             Text(
                 text = "Login to Suno opens Suno's direct login page in an app-owned WebView. " +
-                    "After login, tap Done to capture the WebView cookie jar for sync.",
+                    "After login, tap Done — the app captures and validates the WebView " +
+                    "cookie automatically (status below updates without a separate Test " +
+                    "Connection tap).",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -536,7 +548,7 @@ private fun SunoLoginScreen(
                                     currentUrl = url.orEmpty().ifBlank { currentUrl }
                                     val captured = viewModel.captureWebViewCookie()
                                     pageStatus = if (captured) {
-                                        "Suno cookie captured — tap Done, then Test Connection."
+                                        "Suno cookie captured — tap Done to validate."
                                     } else {
                                         "Loaded. If Suno shows an app prompt, choose Web Browser → Continue."
                                     }

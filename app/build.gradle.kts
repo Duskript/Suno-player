@@ -12,20 +12,19 @@ android {
         applicationId = "com.duskript.sunolocal"
         minSdk = 26
         targetSdk = 35
-        // v0.1.22-cookie-freshness: versionCode 23. Pure cookie freshness
-        // batch: CookieFreshness model (hasSession / expiresAtEpochSeconds /
-        // secondsUntilExpiry / isExpired / expiresWithin / status label) with
-        // injected-clock helpers; safe WebView cookie adoption via
-        // CookieAdoption + CookieRefreshResult so a stored __session is never
-        // overwritten by an older/equal (or not-provably-newer) WebView
-        // __session, while non-__session WebView cookies ride along on adopt;
-        // call sites (download worker pre-sync refresh, cookie refresh worker,
-        // library capture) log captured/saved/reason/expiry timestamps only —
-        // no cookie or JWT values. Settings status now shows the parsed expiry
-        // countdown next to "Configured — not tested". Automatic capture +
-        // validate login flow remains a later batch (v0.1.23-auth-refresh-flow).
-        versionCode = 23
-        versionName = "0.1.22-cookie-freshness"
+        // v0.1.23-auth-refresh-flow: versionCode 24. Capture + validate login
+        // flow and pre-sync auth guard: Settings Done now captures the WebView
+        // cookie and automatically validates it against playlist/me (no
+        // separate Test Connection tap); the download worker runs a pre-sync
+        // auth guard (safe WebView adoption → freshness check → live
+        // validation when missing/expired/near-expired) that skips auto-sync
+        // or fails manual sync with "login required" guidance without clearing
+        // library data; and a single safe WebView adoption + validation retry
+        // is attempted when a sync hits 401/403 mid-run (one retry max per
+        // worker run — never a loop). Log lines carry booleans/reasons/expiry
+        // timestamps only — never cookie or JWT values.
+        versionCode = 24
+        versionName = "0.1.23-auth-refresh-flow"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
