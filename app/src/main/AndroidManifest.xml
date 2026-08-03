@@ -72,6 +72,25 @@
         </receiver>
 
         <!--
+            v0.1.26 — home screen playback widget. Classic AppWidgetProvider +
+            RemoteViews (no Glance). Widget buttons broadcast ACTION_MEDIA_BUTTON
+            key events to SunoMediaButtonReceiver above, so they ride the same
+            MediaSessionService path as headset/lockscreen keys — no parallel
+            playback stack and no second media button receiver. exported=true
+            because the launcher/system delivers the APPWIDGET_UPDATE broadcast.
+        -->
+        <receiver
+            android:name=".core.widget.SunoPlaybackWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/suno_playback_widget_info" />
+        </receiver>
+
+        <!--
             v0.1.15 — pause playback when a wired/Bluetooth audio route is
             unplugged. ACTION_AUDIO_BECOMING_NOISY is exempt from the Android 8+
             implicit-broadcast manifest restrictions, so a static receiver works

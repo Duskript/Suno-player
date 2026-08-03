@@ -13,6 +13,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.exoplayer.ExoPlayer
+import com.duskript.sunolocal.core.widget.SunoPlaybackWidgetUpdater
 import com.duskript.sunolocal.domain.model.SunoTrack
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -495,6 +496,19 @@ class LocalAudioPlayer(context: Context) {
             ?: _queue.value.getOrNull(exoPlayer.currentMediaItemIndex)
         _currentTrack.value = currentTrack
         refreshPlaybackDiagnostics()
+
+        // v0.1.26 — keep the home screen widget on the same state-sync path as
+        // the UI/notification/lockscreen: track transitions, play/pause, and
+        // command availability all flow through syncStateFromPlayer(). This is
+        // never called from the 500ms position tick, and the updater de-dupes
+        // identical states, so unchanged renders are no-ops.
+        SunoPlaybackWidgetUpdater.updateAll(
+            appContext,
+            currentTrack,
+            exoPlayer.isPlaying,
+            exoPlayer.hasPreviousMediaItem(),
+            exoPlayer.hasNextMediaItem()
+        )
     }
 
     /** Refreshes next/previous command availability from the shared player. */

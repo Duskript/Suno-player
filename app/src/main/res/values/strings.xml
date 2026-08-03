@@ -2,4 +2,15 @@
 <resources>
     <string name="app_name">Suno Local</string>
     <string name="playback_notification_channel_name">Media Playback</string>
+
+    <!-- v0.1.26 — home screen playback widget -->
+    <string name="widget_name">Suno Local Player</string>
+    <string name="widget_description">Play, pause, and skip tracks from your home screen</string>
+    <string name="widget_title_fallback">Suno Local</string>
+    <string name="widget_subtitle_fallback">Ready to play</string>
+    <string name="widget_creator_fallback">Unknown creator</string>
+    <string name="widget_play_desc">Play</string>
+    <string name="widget_pause_desc">Pause</string>
+    <string name="widget_previous_desc">Previous track</string>
+    <string name="widget_next_desc">Next track</string>
 </resources>

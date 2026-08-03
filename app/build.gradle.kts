@@ -12,13 +12,21 @@ android {
         applicationId = "com.duskript.sunolocal"
         minSdk = 26
         targetSdk = 35
+        // v0.1.26-home-screen-widget: versionCode 27. Compact home screen
+        // playback widget (classic AppWidgetProvider + RemoteViews, no Glance):
+        // current track + creator, previous/play-pause/next controls, tap-to-
+        // open. Updates ride LocalAudioPlayer.syncStateFromPlayer(); buttons
+        // broadcast ACTION_MEDIA_BUTTON key events to the existing single
+        // SunoMediaButtonReceiver, so controls route through the same
+        // MediaSessionService path as headset/lockscreen keys.
+        //
         // v0.1.25-notification-lockscreen-fix: versionCode 26. Hotfix for
         // missing outside-app controls: SunoPlaybackService now registers the
         // shared MediaSession with addSession(), binds Media3's default
         // notification provider to the app playback channel (suno_local_playback),
         // and Settings checks that real channel instead of the old default id.
-        versionCode = 26
-        versionName = "0.1.25-notification-lockscreen-fix"
+        versionCode = 27
+        versionName = "0.1.26-home-screen-widget"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    v0.1.26 — home screen playback widget provider metadata.
+    updatePeriodMillis="0": the app drives all updates from playback state
+    changes (LocalAudioPlayer.syncStateFromPlayer), so no periodic refresh.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp"
+    android:minHeight="110dp"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/suno_playback_widget"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:label="@string/widget_name"
+    android:description="@string/widget_description" />

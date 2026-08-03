@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    v0.1.26 — home screen playback widget layout. Classic RemoteViews-safe
+    views only (LinearLayout/TextView); no Compose, no custom views. Buttons
+    are TextViews so they render cleanly inside a widget; taps are wired in
+    SunoPlaybackWidgetUpdater via PendingIntents.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_background"
+    android:gravity="center_vertical"
+    android:orientation="vertical"
+    android:padding="12dp">
+
+    <TextView
+        android:id="@+id/widget_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:text="@string/widget_title_fallback"
+        android:textColor="#FFFFFFFF"
+        android:textSize="14sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/widget_subtitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:text="@string/widget_subtitle_fallback"
+        android:textColor="#B3FFFFFF"
+        android:textSize="12sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:gravity="center"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/widget_previous"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:contentDescription="@string/widget_previous_desc"
+            android:gravity="center"
+            android:text="⏮"
+            android:textColor="#FFFFFFFF"
+            android:textSize="22sp" />
+
+        <TextView
+            android:id="@+id/widget_play_pause"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:contentDescription="@string/widget_play_desc"
+            android:gravity="center"
+            android:text="▶"
+            android:textColor="#FFFFFFFF"
+            android:textSize="28sp" />
+
+        <TextView
+            android:id="@+id/widget_next"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:contentDescription="@string/widget_next_desc"
+            android:gravity="center"
+            android:text="⏭"
+            android:textColor="#FFFFFFFF"
+            android:textSize="22sp" />
+    </LinearLayout>
+</LinearLayout>
