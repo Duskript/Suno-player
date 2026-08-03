@@ -201,11 +201,19 @@ class LocalAudioPlayer(context: Context) {
         }
     }
 
-    /** Tick counter for the ~5s throttled resume-state persistence. */
+    /**
+     * Tick counter for the ~5s throttled resume-state persistence.
+     */
     private var positionTicks = 0
 
     init {
-        SunoPlaybackEngine.mediaSession(appContext)
+        // v0.1.27 — do NOT create the shared session here. The session must be
+        // created by SunoPlaybackService with its Android Auto browse callback
+        // installed; a UI-created session would freeze a callback-less/default
+        // session in place and Android Auto would see no browse tree. Media
+        // buttons, notifications, and Auto connections all resolve the service,
+        // which creates the single shared MediaLibrarySession in onCreate /
+        // onGetSession before any controller uses it.
         syncStateFromPlayer()
         updatePlaybackPosition()
         exoPlayer.addListener(listener)

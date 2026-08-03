@@ -44,12 +44,35 @@
             </intent-filter>
         </activity>
 
+        <!--
+            v0.1.27 — Android Auto media app declaration. The automotive app
+            descriptor (res/xml/automotive_app_desc.xml) advertises the "media"
+            use so the car's Android Auto host lists this app in its driver-safe
+            media UI, which renders the MediaLibrarySession browse tree (Suno
+            Local → Playlists → saved playlists → tracks). No templated Cars App
+            Library UI and no AAOS-specific module in this pass.
+        -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+
         <!-- Foreground Media3 session service keeps playback alive outside Activity focus. -->
         <service
             android:name=".core.player.SunoPlaybackService"
             android:exported="true"
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>
+                <!--
+                    v0.1.27 — MediaLibraryService is Media3's library-session
+                    action; android.media.browse.MediaBrowserService keeps
+                    legacy MediaBrowserCompat clients (including the phone-side
+                    Android Auto app) able to find this service;
+                    androidx.media3.session.MediaSessionService is retained so
+                    SunoMediaButtonReceiver (Media3 MediaButtonReceiver) keeps
+                    resolving this service for headset/lockscreen/widget keys.
+                -->
+                <action android:name="androidx.media3.session.MediaLibraryService" />
+                <action android:name="android.media.browse.MediaBrowserService" />
                 <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>
         </service>

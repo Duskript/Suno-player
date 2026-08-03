@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    v0.1.27 — Android Auto media app descriptor. Declares that this app is a
+    media app so the car's Android Auto host (phone-side app) exposes it in the
+    driver-safe media UI, which renders the MediaLibrarySession browse tree
+    (Suno Local → Playlists → saved playlists → tracks). No templated Cars App
+    Library UI and no AAOS-specific module in this pass.
+-->
+<automotiveApp>
+    <uses name="media" />
+</automotiveApp>

@@ -8,6 +8,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
 import com.duskript.sunolocal.MainActivity
 
@@ -22,7 +23,10 @@ import com.duskript.sunolocal.MainActivity
  */
 object SunoPlaybackEngine {
     private var playerInstance: ExoPlayer? = null
-    private var mediaSessionInstance: MediaSession? = null
+    // v0.1.27 — the single shared session is now a MediaLibrarySession (it IS
+    // a MediaSession) so Android Auto can browse the saved library while the
+    // notification/lockscreen/Bluetooth/widget paths keep working unchanged.
+    private var mediaLibrarySessionInstance: MediaLibraryService.MediaLibrarySession? = null
 
     fun player(context: Context): ExoPlayer {
         val appContext = context.applicationContext
@@ -59,9 +63,35 @@ object SunoPlaybackEngine {
      */
     fun currentPlayerOrNull(): ExoPlayer? = playerInstance
 
+    /**
+     * The shared session as a MediaSession (compatibility accessor).
+     *
+     * v0.1.27 — the shared session is a MediaLibrarySession, which is a
+     * MediaSession, so MediaSession-typed callers keep working unchanged.
+     * Callers that need Android Auto browsing should use
+     * [mediaLibrarySession] with the service's browse callback instead.
+     */
     fun mediaSession(context: Context): MediaSession {
+        return mediaLibrarySession(context, FallbackLibraryCallback)
+    }
+
+    /**
+     * The single shared MediaLibrarySession, created exactly once with the
+     * given browse callback and the process-wide [player].
+     *
+     * SunoPlaybackService calls this from onCreate so the Android Auto browse
+     * callback is installed before any session exists; LocalAudioPlayer no
+     * longer creates the session eagerly (v0.1.27) so the service-owned
+     * callback is never frozen out by a UI-created plain session.
+     */
+    fun mediaLibrarySession(
+        context: Context,
+        callback: MediaLibraryService.MediaLibrarySession.Callback
+    ): MediaLibraryService.MediaLibrarySession {
+        val existing = mediaLibrarySessionInstance
+        if (existing != null) return existing
         val appContext = context.applicationContext
-        return mediaSessionInstance ?: MediaSession.Builder(appContext, player(appContext))
+        return MediaLibraryService.MediaLibrarySession.Builder(appContext, player(appContext), callback)
             .setId("suno-local-playback")
             // v0.1.17: tapping the media notification / lockscreen artwork opens
             // the app. Play/pause/next/previous/seek stay exposed automatically:
@@ -71,10 +101,10 @@ object SunoPlaybackEngine {
             .setSessionActivity(sessionActivityPendingIntent(appContext))
             .build()
             .also {
-                mediaSessionInstance = it
+                mediaLibrarySessionInstance = it
                 // v0.1.20 — one-time instrumentation so logcat can prove the
                 // session exists for dumpsys media_session checks.
-                Log.i(TAG, "Created MediaSession id=suno-local-playback")
+                Log.i(TAG, "Created MediaLibrarySession id=suno-local-playback")
             }
     }
 
@@ -105,11 +135,21 @@ object SunoPlaybackEngine {
     }
 
     fun release() {
-        mediaSessionInstance?.release()
-        mediaSessionInstance = null
+        mediaLibrarySessionInstance?.release()
+        mediaLibrarySessionInstance = null
         playerInstance?.release()
         playerInstance = null
     }
+
+    /**
+     * Defensive all-default browse callback used only if a MediaSession-typed
+     * caller requests the session before SunoPlaybackService installed its
+     * browse callback (does not happen in the normal service-first flow). All
+     * MediaLibrarySession.Callback methods have defaults, so this object
+     * compiles with no overrides and simply returns "not supported" errors
+     * for browse requests.
+     */
+    private object FallbackLibraryCallback : MediaLibraryService.MediaLibrarySession.Callback
 
     private const val TAG = "SunoPlaybackEngine"
 }

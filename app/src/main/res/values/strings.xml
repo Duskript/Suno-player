@@ -13,4 +13,9 @@
     <string name="widget_pause_desc">Pause</string>
     <string name="widget_previous_desc">Previous track</string>
     <string name="widget_next_desc">Next track</string>
+
+    <!-- v0.1.27 — Android Auto browse tree titles (mirrored as literals in
+         SunoMediaLibrary.kt so pure-JVM unit tests need no Context). -->
+    <string name="car_root_title">Suno Local</string>
+    <string name="car_playlists_folder_title">Playlists</string>
 </resources>

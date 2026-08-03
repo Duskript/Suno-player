@@ -1,20 +1,33 @@
 package com.duskript.sunolocal.core.player
 
+import android.content.Context
 import android.util.Log
+import androidx.media3.common.MediaItem
 import androidx.media3.session.DefaultMediaNotificationProvider
+import androidx.media3.session.LibraryResult
+import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
 import com.duskript.sunolocal.R
 import com.duskript.sunolocal.SunoLocalApplication
+import com.duskript.sunolocal.core.storage.LibraryStore
+import com.duskript.sunolocal.core.storage.SunoPlaylistJson
+import com.google.common.collect.ImmutableList
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 
 /**
- * Foreground-capable Media3 session service for background music playback.
+ * Foreground-capable Media3 library session service for background music
+ * playback and Android Auto browsing.
  *
- * Android keeps media playback alive through a MediaSessionService + media
- * notification instead of tying audio to Activity focus. The UI starts this
- * service before playback and both service/UI share SunoPlaybackEngine.player().
+ * v0.1.27 — the service is now a MediaLibraryService: Android keeps media
+ * playback alive through a MediaSessionService + media notification instead of
+ * tying audio to Activity focus, and the MediaLibrarySession browse tree lets
+ * Android Auto render its own driver-safe UI over the saved library. The UI
+ * starts this service before playback and both service/UI share
+ * SunoPlaybackEngine.player(). The notification/lockscreen/Bluetooth/widget
+ * paths are unchanged: they all act on the same shared session.
  */
-class SunoPlaybackService : MediaSessionService() {
+class SunoPlaybackService : MediaLibraryService() {
 
     override fun onCreate() {
         super.onCreate()
@@ -32,13 +45,21 @@ class SunoPlaybackService : MediaSessionService() {
                 R.string.playback_notification_channel_name
             )
         )
-        val session = SunoPlaybackEngine.mediaSession(this)
+        // v0.1.27 — create the single shared session as a MediaLibrarySession
+        // with the browse callback installed up front, so Android Auto sees
+        // the library tree even when the UI/notification path created the
+        // process first. The same session instance keeps riding the
+        // notification provider registered above.
+        val session = SunoPlaybackEngine.mediaLibrarySession(
+            this,
+            SunoLibraryBrowseCallback(applicationContext)
+        )
         if (!isSessionAdded(session)) {
             addSession(session)
         }
         Log.i(
             TAG,
-            "Registered MediaSession with service notification provider " +
+            "Registered MediaLibrarySession with service notification provider " +
                 "(channel=${SunoLocalApplication.CHANNEL_PLAYBACK})"
         )
         // v0.1.20 — instrumentation: proves the service came up and whether the
@@ -49,7 +70,9 @@ class SunoPlaybackService : MediaSessionService() {
         )
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession {
+    override fun onGetSession(
+        controllerInfo: MediaSession.ControllerInfo
+    ): MediaLibraryService.MediaLibrarySession {
         // Controller package can be null (e.g. media key events from the
         // system), so the log stays null-tolerant.
         val controller = controllerInfo.packageName?.takeIf { it.isNotBlank() } ?: "unknown"
@@ -58,7 +81,10 @@ class SunoPlaybackService : MediaSessionService() {
             "Session requested by controller=$controller; " +
                 "keepAlive=${SunoPlaybackEngine.shouldKeepPlaybackAlive()}"
         )
-        return SunoPlaybackEngine.mediaSession(this)
+        return SunoPlaybackEngine.mediaLibrarySession(
+            this,
+            SunoLibraryBrowseCallback(applicationContext)
+        )
     }
 
     override fun onTaskRemoved(rootIntent: android.content.Intent?) {
@@ -97,6 +123,90 @@ class SunoPlaybackService : MediaSessionService() {
                 "playWhenReady=${player?.playWhenReady}, playbackState=$state, " +
                 "keepAlive=${SunoPlaybackEngine.shouldKeepPlaybackAlive()}"
         )
+    }
+
+    /**
+     * v0.1.27 — Android Auto / media-browser browse callback.
+     *
+     * Read-only browse over the app-private [LibraryStore]: every browse
+     * request loads the current playlists, so the car always sees the saved
+     * library (custom mixes included). Never mutates the library, never makes
+     * network calls, never logs cookies/secrets — only playlist/track titles.
+     * The tree is deliberately shallow (root → Playlists → playlist → tracks)
+     * to stay driver-safe.
+     */
+    private class SunoLibraryBrowseCallback(private val context: Context) :
+        MediaLibraryService.MediaLibrarySession.Callback {
+
+        private fun loadPlaylists(): List<SunoPlaylistJson> =
+            LibraryStore(context.applicationContext).loadPlaylists()
+
+        override fun onGetLibraryRoot(
+            session: MediaLibraryService.MediaLibrarySession,
+            controller: MediaSession.ControllerInfo,
+            params: MediaLibraryService.LibraryParams?
+        ): ListenableFuture<LibraryResult<MediaItem>> {
+            return Futures.immediateFuture(
+                LibraryResult.ofItem(SunoMediaLibrary.rootItem(context), params)
+            )
+        }
+
+        override fun onGetChildren(
+            session: MediaLibraryService.MediaLibrarySession,
+            controller: MediaSession.ControllerInfo,
+            parentId: String,
+            page: Int,
+            pageSize: Int,
+            params: MediaLibraryService.LibraryParams?
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            val playlists = loadPlaylists()
+            val children = SunoMediaLibrary.childrenFor(parentId, playlists)
+            val result: LibraryResult<ImmutableList<MediaItem>> =
+                if (children.isEmpty() && !SunoMediaLibrary.isKnownParent(parentId, playlists)) {
+                    LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE)
+                } else {
+                    LibraryResult.ofItemList(children, params)
+                }
+            return Futures.immediateFuture(result)
+        }
+
+        override fun onGetItem(
+            session: MediaLibraryService.MediaLibrarySession,
+            controller: MediaSession.ControllerInfo,
+            mediaId: String
+        ): ListenableFuture<LibraryResult<MediaItem>> {
+            val item = SunoMediaLibrary.itemFor(mediaId, loadPlaylists())
+            val result: LibraryResult<MediaItem> =
+                if (item != null) {
+                    // onGetItem has no LibraryParams; null matches Media3's
+                    // own demos and the session fills in its defaults.
+                    LibraryResult.ofItem(item, /* params= */ null)
+                } else {
+                    LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE)
+                }
+            return Futures.immediateFuture(result)
+        }
+
+        override fun onAddMediaItems(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: List<MediaItem>
+        ): ListenableFuture<List<MediaItem>> {
+            // Android Auto requests playback by media id (the browsed item has
+            // no URI on the wire), so resolve every URI-less requested item
+            // through the library before it reaches the player. Items that
+            // already carry a URI pass through untouched.
+            val playlists = loadPlaylists()
+            val resolved = mediaItems.map { requested ->
+                val hasUri = requested.localConfiguration?.uri != null
+                if (hasUri) {
+                    requested
+                } else {
+                    SunoMediaLibrary.itemFor(requested.mediaId, playlists) ?: requested
+                }
+            }
+            return Futures.immediateFuture(resolved)
+        }
     }
 
     private companion object {
