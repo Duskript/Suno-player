@@ -64,6 +64,8 @@ import com.duskript.sunolocal.domain.model.SunoTrack
  * @param positionMs Elapsed playback position of the current item, in ms.
  * @param durationMs Duration of the current item, in ms (0 when unknown).
  * @param repeatMode Media3 repeat mode (REPEAT_MODE_OFF / ALL / ONE).
+ * @param hasNext Whether the queue has a next item; disables the next button when false.
+ * @param hasPrevious Whether the queue has a previous item; disables the previous button when false.
  * @param onPlayPause Callback when play/pause is toggled.
  * @param onNext Callback to skip to next track.
  * @param onPrevious Callback to go to previous track.
@@ -81,6 +83,8 @@ fun ElevenLabsStylePlayer(
     positionMs: Long,
     durationMs: Long,
     repeatMode: Int,
+    hasNext: Boolean = true,
+    hasPrevious: Boolean = true,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
@@ -192,15 +196,18 @@ fun ElevenLabsStylePlayer(
                     )
                 }
 
-                // Previous
+                // Previous — disabled (not just dimmed) when the queue has no
+                // previous item, mirroring the Media3 notification/lockscreen
+                // command availability.
                 IconButton(
                     onClick = onPrevious,
+                    enabled = hasPrevious,
                     modifier = Modifier.size(36.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Filled.SkipPrevious,
                         contentDescription = "Previous track",
-                        tint = if (currentTrack != null) MaterialTheme.colorScheme.onSurface
+                        tint = if (hasPrevious) MaterialTheme.colorScheme.onSurface
                         else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                         modifier = Modifier.size(22.dp)
                     )
@@ -223,15 +230,18 @@ fun ElevenLabsStylePlayer(
                     )
                 }
 
-                // Next
+                // Next — disabled (not just dimmed) when the queue has no next
+                // item, mirroring the Media3 notification/lockscreen command
+                // availability.
                 IconButton(
                     onClick = onNext,
+                    enabled = hasNext,
                     modifier = Modifier.size(36.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Filled.SkipNext,
                         contentDescription = "Next track",
-                        tint = if (currentTrack != null) MaterialTheme.colorScheme.onSurface
+                        tint = if (hasNext) MaterialTheme.colorScheme.onSurface
                         else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                         modifier = Modifier.size(22.dp)
                     )

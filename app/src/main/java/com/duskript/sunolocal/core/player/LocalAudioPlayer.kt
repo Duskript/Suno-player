@@ -10,6 +10,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Timeline
 import androidx.media3.exoplayer.ExoPlayer
 import com.duskript.sunolocal.domain.model.SunoTrack
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,6 +48,16 @@ class LocalAudioPlayer(context: Context) {
 
     private val _shuffleEnabled = MutableStateFlow(exoPlayer.shuffleModeEnabled)
     val shuffleEnabled: StateFlow<Boolean> = _shuffleEnabled.asStateFlow()
+
+    // v0.1.21 — next/previous command availability for the UI, derived from
+    // the shared player's queue position. Buttons in the bottom player and the
+    // Media3 notification/lockscreen controls share this truth: no next item
+    // means next is unavailable, not just dimmed.
+    private val _hasPrevious = MutableStateFlow(exoPlayer.hasPreviousMediaItem())
+    val hasPrevious: StateFlow<Boolean> = _hasPrevious.asStateFlow()
+
+    private val _hasNext = MutableStateFlow(exoPlayer.hasNextMediaItem())
+    val hasNext: StateFlow<Boolean> = _hasNext.asStateFlow()
 
     private val _queue = MutableStateFlow<List<SunoTrack>>(emptyList())
     val queue: StateFlow<List<SunoTrack>> = _queue.asStateFlow()
@@ -141,6 +152,45 @@ class LocalAudioPlayer(context: Context) {
                 "Player state -> ${PlaybackDiagnostics.playerStateLabel(playbackState)} " +
                     "(isPlaying=${exoPlayer.isPlaying}, playWhenReady=${exoPlayer.playWhenReady})"
             )
+        }
+
+        // v0.1.21 — external-controller sync. Notification/lockscreen/Bluetooth/
+        // media-key commands act directly on the shared ExoPlayer (through the
+        // MediaSession), so every relevant Player.Listener callback refreshes the
+        // UI-facing flows and persists the resume snapshot. Signatures verified
+        // against the media3-common 1.5.1 AAR (Player$Listener via javap).
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            syncStateFromPlayer()
+            updatePlaybackPosition()
+            persistPlaybackState()
+        }
+
+        override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+            // Queue mutations from any source (in-app or a MediaController)
+            // land here; keep availability + queue flows in sync.
+            syncStateFromPlayer()
+            updatePlaybackPosition()
+            persistPlaybackState()
+        }
+
+        override fun onPositionDiscontinuity(
+            oldPosition: Player.PositionInfo,
+            newPosition: Player.PositionInfo,
+            reason: Int
+        ) {
+            // External seek / next / previous changes the current item or
+            // position directly on the shared player; persist so the Resume
+            // snapshot survives a later app restart.
+            syncStateFromPlayer()
+            updatePlaybackPosition()
+            persistPlaybackState()
+        }
+
+        override fun onAvailableCommandsChanged(availableCommands: Player.Commands) {
+            // next/previous availability tracks queue state; refresh the
+            // command-availability flows whenever the player's command set
+            // changes (e.g. reaching the end of the queue via external next).
+            refreshCommandAvailability()
         }
 
         override fun onEvents(player: Player, events: Player.Events) {
@@ -259,18 +309,32 @@ class LocalAudioPlayer(context: Context) {
         persistPlaybackState()
     }
 
+    // v0.1.21 — guarded no-ops: next/previous only step when the queue can
+    // actually step (hasNextMediaItem/hasPreviousMediaItem). No-op calls still
+    // sync state so UI availability and diagnostics stay current, and an
+    // invalid command from an external controller can never crash the player.
     fun next() {
         syncStateFromPlayer()
-        exoPlayer.seekToNextMediaItem()
+        if (exoPlayer.hasNextMediaItem()) {
+            exoPlayer.seekToNextMediaItem()
+        } else {
+            Log.i(TAG, "next() ignored: no next media item in queue")
+        }
         updatePlaybackPosition()
         persistPlaybackState()
+        syncStateFromPlayer()
     }
 
     fun previous() {
         syncStateFromPlayer()
-        exoPlayer.seekToPreviousMediaItem()
+        if (exoPlayer.hasPreviousMediaItem()) {
+            exoPlayer.seekToPreviousMediaItem()
+        } else {
+            Log.i(TAG, "previous() ignored: no previous media item in queue")
+        }
         updatePlaybackPosition()
         persistPlaybackState()
+        syncStateFromPlayer()
     }
 
     fun toggleShuffle() {
@@ -389,9 +453,15 @@ class LocalAudioPlayer(context: Context) {
     private fun syncStateFromPlayer() {
         _isPlaying.value = exoPlayer.isPlaying
         _shuffleEnabled.value = exoPlayer.shuffleModeEnabled
+        refreshCommandAvailability()
 
+        // v0.1.21 — MediaSession controllers see MediaItems without
+        // localConfiguration (tags are session-local), so fall back to the
+        // mediaId -> track map when a tag is missing. This keeps the queue and
+        // current-track flows correct after external next/previous/play.
         val restoredQueue = (0 until exoPlayer.mediaItemCount).mapNotNull { index ->
-            exoPlayer.getMediaItemAt(index).localConfiguration?.tag as? SunoTrack
+            val item = exoPlayer.getMediaItemAt(index)
+            (item.localConfiguration?.tag as? SunoTrack) ?: trackMap[item.mediaId]
         }
         if (restoredQueue.isNotEmpty()) {
             _queue.value = restoredQueue
@@ -403,6 +473,12 @@ class LocalAudioPlayer(context: Context) {
             ?: _queue.value.getOrNull(exoPlayer.currentMediaItemIndex)
         _currentTrack.value = currentTrack
         refreshPlaybackDiagnostics()
+    }
+
+    /** Refreshes next/previous command availability from the shared player. */
+    private fun refreshCommandAvailability() {
+        _hasPrevious.value = exoPlayer.hasPreviousMediaItem()
+        _hasNext.value = exoPlayer.hasNextMediaItem()
     }
 
     /** Refreshes position/duration/progress flows from the player. */
@@ -439,6 +515,8 @@ class LocalAudioPlayer(context: Context) {
             shuffleEnabled = exoPlayer.shuffleModeEnabled,
             durationMs = _playbackDurationMs.value,
             positionMs = _playbackPositionMs.value,
+            hasPrevious = _hasPrevious.value,
+            hasNext = _hasNext.value,
             lastError = _playbackErrorMessage.value,
             keepAlive = SunoPlaybackEngine.shouldKeepPlaybackAlive()
         )

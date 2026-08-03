@@ -27,6 +27,11 @@ data class PlaybackDiagnostics(
     val shuffleEnabled: Boolean = false,
     val durationMs: Long = 0L,
     val positionMs: Long = 0L,
+    // v0.1.21 — next/previous command availability, derived from
+    // ExoPlayer.hasPreviousMediaItem()/hasNextMediaItem(). Lets Settings show
+    // why an outside-app next/previous is currently unavailable.
+    val hasPrevious: Boolean = false,
+    val hasNext: Boolean = false,
     /** Last user-facing playback error message, if any (see LocalAudioPlayer.playbackErrorMessage). */
     val lastError: String? = null,
     /**

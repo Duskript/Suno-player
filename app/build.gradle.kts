@@ -12,15 +12,18 @@ android {
         applicationId = "com.duskript.sunolocal"
         minSdk = 26
         targetSdk = 35
-        // v0.1.20-playback-lifetime-hardening: versionCode 21. Playback lifetime
-        // hardening batch: Settings gains Player Diagnostics (track, state,
-        // isPlaying/playWhenReady, queue/index, repeat/shuffle, position,
-        // keep-alive, last error) and Media Controls status (Android 13+
-        // notification permission + Media3 playback channel), plus service/
-        // engine/player lifecycle instrumentation logs to prove screen-off
-        // playback. No media-notification provider changes in this batch.
-        versionCode = 21
-        versionName = "0.1.20-playback-lifetime-hardening"
+        // v0.1.21-durable-media-controls: versionCode 22. Durable media
+        // controls batch: next/previous command availability flows from the
+        // shared ExoPlayer into the bottom player (buttons disabled, not just
+        // dimmed, when the queue cannot step); external controller events
+        // (play/pause, timeline changes, position discontinuity, available
+        // commands) sync back into LocalAudioPlayer StateFlows and persist the
+        // resume snapshot; Settings gains an in-app POST_NOTIFICATIONS request
+        // button (Android 13+) alongside the open-settings fallback. Media3
+        // default notification provider remains (channel default_channel_id);
+        // no custom provider added.
+        versionCode = 22
+        versionName = "0.1.21-durable-media-controls"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

@@ -19,6 +19,8 @@ import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -750,6 +752,10 @@ private fun PlayerDiagnosticsSection(diagnostics: PlaybackDiagnostics) {
     )
     InfoRow("Repeat", diagnostics.repeatModeLabel)
     InfoRow("Shuffle", if (diagnostics.shuffleEnabled) "On" else "Off")
+    // v0.1.21 — next/previous command availability so Settings can explain why
+    // an outside-app next/previous is currently unavailable.
+    InfoRow("Previous available", if (diagnostics.hasPrevious) "Yes" else "No")
+    InfoRow("Next available", if (diagnostics.hasNext) "Yes" else "No")
     InfoRow("Position", formatPosition(diagnostics.positionMs, diagnostics.durationMs))
     InfoRow(
         "Background keep-alive",
@@ -776,14 +782,26 @@ private fun PlayerDiagnosticsSection(diagnostics: PlaybackDiagnostics) {
  * v0.1.20 — Media-control status: Android 13+ notification permission and the
  * Media3 playback notification channel. Missing permission or a disabled
  * channel means lockscreen/notification/headset controls may not appear even
- * though in-app audio keeps playing. Refreshes on ON_RESUME so the status
- * updates after the user returns from system notification settings.
+ * though in-app audio keeps playing. v0.1.21 adds a direct Android 13+
+ * POST_NOTIFICATIONS request button so recovery is one tap, with the system
+ * notification settings kept as fallback for denied/disabled-channel cases.
+ * Refreshes on ON_RESUME so the status updates after the user returns from
+ * the system permission dialog or notification settings.
  */
 @Composable
 private fun MediaControlStatusSection(context: Context) {
     val lifecycleOwner = LocalLifecycleOwner.current
     var permissionGranted by remember { mutableStateOf(notificationPermissionGranted(context)) }
     var channelStatus by remember { mutableStateOf(playbackChannelStatus(context)) }
+    // v0.1.21 — one-tap runtime POST_NOTIFICATIONS request on Android 13+.
+    // The callback refreshes both the permission row and the channel status
+    // (Media3 creates the playback channel once playback starts).
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        permissionGranted = granted || notificationPermissionGranted(context)
+        channelStatus = playbackChannelStatus(context)
+    }
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
@@ -801,6 +819,14 @@ private fun MediaControlStatusSection(context: Context) {
     )
     if (!permissionGranted) {
         Spacer(modifier = Modifier.height(8.dp))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Button(onClick = {
+                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }) {
+                Text("Allow Notifications")
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
         OutlinedButton(onClick = { openAppNotificationSettings(context) }) {
             Text("Open Notification Settings")
         }

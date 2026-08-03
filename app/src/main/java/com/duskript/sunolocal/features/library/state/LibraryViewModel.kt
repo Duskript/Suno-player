@@ -767,6 +767,9 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     val playbackProgress: StateFlow<Float> = audioPlayer.playbackProgress
     val repeatMode: StateFlow<Int> = audioPlayer.repeatMode
     val playbackErrorMessage: StateFlow<String?> = audioPlayer.playbackErrorMessage
+    // v0.1.21 — next/previous command availability for the bottom player.
+    val hasPrevious: StateFlow<Boolean> = audioPlayer.hasPrevious
+    val hasNext: StateFlow<Boolean> = audioPlayer.hasNext
     // v0.1.20 — playback lifetime diagnostics for Settings (Batch A).
     val playbackDiagnostics: StateFlow<PlaybackDiagnostics> = audioPlayer.playbackDiagnostics
 

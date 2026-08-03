@@ -133,6 +133,9 @@ fun LibraryScreen(
     val playbackProgress by viewModel.playbackProgress.collectAsState()
     val repeatMode by viewModel.repeatMode.collectAsState()
     val playbackErrorMessage by viewModel.playbackErrorMessage.collectAsState()
+    // v0.1.21 — next/previous command availability (from the shared player).
+    val hasPrevious by viewModel.hasPrevious.collectAsState()
+    val hasNext by viewModel.hasNext.collectAsState()
     // Batch 6 — export/import result messages surface in a dismissible dialog.
     val backupMessage by viewModel.backupMessage.collectAsState()
 
@@ -577,6 +580,8 @@ fun LibraryScreen(
                 positionMs = playbackPositionMs,
                 durationMs = playbackDurationMs,
                 repeatMode = repeatMode,
+                hasPrevious = hasPrevious,
+                hasNext = hasNext,
                 onPlayPause = { viewModel.playPause() },
                 onNext = { viewModel.next() },
                 onPrevious = { viewModel.previous() },

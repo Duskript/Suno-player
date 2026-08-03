@@ -16,6 +16,11 @@ class SunoPlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         SunoPlaybackEngine.mediaSession(this)
+        // v0.1.21 — no custom MediaNotification.Provider: Media3's default
+        // DefaultMediaNotificationProvider (channel default_channel_id) drives
+        // the notification/lockscreen controls from the session's available
+        // commands, so next/previous availability matches the player queue.
+        Log.i(TAG, "Using Media3 default media notification provider (channel default_channel_id)")
         // v0.1.20 — instrumentation: proves the service came up and whether the
         // shared engine already considers playback worth keeping alive.
         Log.i(
