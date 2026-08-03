@@ -412,9 +412,9 @@ Run these as separate Fusion batches and push after each successful feature, sam
 
 ---
 
-# Fusion Prompt Template
+# Fusion Prompt Template — Single Batch
 
-Use this when invoking the build command:
+Use this when invoking one specific batch:
 
 ```text
 FUSION MODE TASK
@@ -434,6 +434,53 @@ Fusion rules:
 7. After executor returns, independently review git diff, run forced Gradle build, badging, device smoke, and the batch-specific acceptance gate.
 8. If clean, planner commits, pushes, creates GitHub release, installs APK on both devices, and reports proof.
 9. If executor misses the spec once, narrow redelegate. If it misses twice, revise plan or dictate exact replacements.
+```
+
+# Fusion Prompt Template — Sequential Remaining Batches
+
+Use this when invoking the remaining release train in order. This is the preferred prompt after Batch A has shipped.
+
+```text
+FUSION MODE TASK
+
+You are the PLANNER/REVIEWER for this coding task. The active main model is the expensive reasoning model. The executor is configured through Hermes delegate_task as provider opencode-go, model deepseek-v4-flash.
+
+User task:
+Implement the remaining batches from docs/plans/MEDIA_PLAYER_HARDENING_SPEC.md in order: Batch B, then Batch C, then Batch D, then Batch E. Push to GitHub after each successful feature release.
+
+Required order and release targets:
+1. Batch B — v0.1.21-durable-media-controls, versionCode 22
+2. Batch C — v0.1.22-cookie-freshness, versionCode 23
+3. Batch D — v0.1.23-auth-refresh-flow, versionCode 24
+4. Batch E — v0.1.24-media-player-polish, versionCode 25
+
+Primary product requirement:
+Playback must be designed for perpetual background/screen-off operation. Timed checks are only bounded verification samples, not the product target. Do not describe success as “10-minute playback.” For playback batches, use the spec’s bounded soak gate (minimum 30 minutes when practical, overnight preferred) plus media-session/logcat proof.
+
+Fusion rules:
+1. Load and follow docs/plans/MEDIA_PLAYER_HARDENING_SPEC.md.
+2. Do prerequisite inspection yourself with read/search/safe terminal commands before each batch.
+3. Do NOT directly edit implementation code or config files as planner.
+4. Your only path to implementation/config/doc changes is delegate_task to the executor.
+5. Before delegating each batch, write a strict Spec Contract with Objective / Files / Interfaces / Constraints / Verification.
+6. Executor must return exactly STATUS / CHANGES / VERIFIED / GAPS.
+7. After executor returns, independently review git diff, run forced Gradle build, badging, device smoke, and the batch-specific acceptance gate.
+8. If clean, planner commits, pushes, creates the GitHub release, installs APK on both devices, and reports proof before starting the next batch.
+9. If a batch fails verification, do not continue to the next batch. Narrow redelegate once with exact misses. If it misses twice, stop and report the blocker.
+10. Keep releases atomic: one batch = one commit/push/release. Do not bundle B+C+D+E into one release.
+11. Do not claim cookie refresh is solved unless login/capture/validate and expired-cookie paths are verified. Do not claim perpetual playback is solved unless the running-playback evidence supports it.
+12. Preserve existing data and user state: do not clear app data, delete downloaded audio, change Suno endpoints without evidence, or remove existing playback/library flows.
+
+Global verification for every batch:
+- git diff --check
+- ./gradlew testDebugUnitTest assembleDebug --console=plain --rerun-tasks
+- aapt2 badging shows the expected versionCode/versionName
+- SHA-256 of APK captured
+- install/launch smoke on 21251FDF60016K and 192.168.1.18:5555 when connected
+- no FATAL/ANR/ForegroundServiceDidNotStart/startForegroundService() not allowed in logcat
+- GitHub release exists with suno-local-player-debug.apk asset and SHA-256 in notes
+
+Begin with Batch B now.
 ```
 
 ---
