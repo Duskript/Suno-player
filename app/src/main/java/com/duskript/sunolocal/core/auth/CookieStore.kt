@@ -2,10 +2,8 @@ package com.duskript.sunolocal.core.auth
 
 import android.content.Context
 import android.content.SharedPreferences
-import android.util.Base64
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
-import org.json.JSONObject
 
 /**
  * CookieStore — persists Suno cookies for API authentication.
@@ -52,16 +50,19 @@ class CookieStore(context: Context) {
     fun isConfigured(): Boolean = !getCookie().isNullOrBlank()
 
     /** Epoch seconds when the stored __session JWT expires, if the cookie uses JWT format. */
-    fun sessionExpiresAtEpochSeconds(): Long? = getCookie()
-        ?.let { extractCookieValue(it, "__session") }
-        ?.let { jwtExpiresAtEpochSeconds(it) }
+    fun sessionExpiresAtEpochSeconds(): Long? = freshness().expiresAtEpochSeconds
 
     /** True once the session is within [windowSeconds] of expiry or already expired. */
-    fun sessionExpiresWithin(windowSeconds: Long): Boolean {
-        val expiresAt = sessionExpiresAtEpochSeconds() ?: return false
-        val now = System.currentTimeMillis() / 1000L
-        return expiresAt - now <= windowSeconds
-    }
+    fun sessionExpiresWithin(windowSeconds: Long): Boolean =
+        freshness().expiresWithin(windowSeconds)
+
+    /**
+     * Freshness of the stored cookie as of [nowEpochSeconds]. Defaults to the
+     * current wall clock so runtime call sites stay unchanged; tests inject a
+     * fixed [nowEpochSeconds] for deterministic assertions.
+     */
+    fun freshness(nowEpochSeconds: Long = System.currentTimeMillis() / 1000L): CookieFreshness =
+        CookieFreshness.of(getCookie(), nowEpochSeconds)
 
     companion object {
         private const val PREFS_NAME = "suno_local_cookie_prefs"
@@ -107,17 +108,14 @@ class CookieStore(context: Context) {
                 ?.takeIf { it.isNotBlank() }
         }
 
-        fun jwtExpiresAtEpochSeconds(jwt: String): Long? {
-            return try {
-                val parts = jwt.split('.')
-                if (parts.size < 2) return null
-                val payload = parts[1]
-                val decoded = Base64.decode(payload, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
-                JSONObject(String(decoded, Charsets.UTF_8)).optLong("exp", 0L).takeIf { it > 0L }
-            } catch (_: Exception) {
-                null
-            }
-        }
+        /**
+         * Parse the `exp` claim (epoch seconds) from a JWT, or null when the
+         * token is malformed or carries no positive `exp`. Delegates to the
+         * pure [CookieFreshness] parser (java.util.Base64 + org.json) so the
+         * logic is exercised by deterministic unit tests.
+         */
+        fun jwtExpiresAtEpochSeconds(jwt: String): Long? =
+            CookieFreshness.jwtExpiresAtEpochSeconds(jwt)
 
         private fun parseNetscapeCookieExport(input: String): String {
             val cookies = linkedMapOf<String, String>()

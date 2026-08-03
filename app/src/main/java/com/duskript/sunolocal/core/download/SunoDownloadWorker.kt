@@ -111,13 +111,21 @@ class SunoDownloadWorker(
         }
     }
 
+    /**
+     * Adopt a fresher WebView cookie before syncing. Uses the richer
+     * [com.duskript.sunolocal.core.auth.CookieRefreshResult] so the log line
+     * carries captured/saved/reason/expiry timestamps only — never cookie or
+     * JWT values.
+     */
     private fun refreshStoredWebViewCookieIfAvailable(autoSync: Boolean) {
-        val expiresSoon = cookieStore.sessionExpiresWithin(FIFTEEN_MINUTES_SECONDS)
-        val refreshed = WebViewCookieBridge.refreshCookieStore(cookieStore)
-        val expiresAt = cookieStore.sessionExpiresAtEpochSeconds()
+        val result = WebViewCookieBridge.refreshCookieStore(cookieStore)
+        val freshness = cookieStore.freshness()
         Log.i(
             TAG,
-            "Suno cookie pre-sync refresh: autoSync=$autoSync refreshed=$refreshed expiresSoon=$expiresSoon expiresAt=$expiresAt"
+            "Suno cookie pre-sync refresh: autoSync=$autoSync captured=${result.captured} " +
+                "saved=${result.saved} reason=${result.reason} " +
+                "expiresSoon=${freshness.expiresWithin(FIFTEEN_MINUTES_SECONDS)} " +
+                "newExpiresAt=${result.newExpiresAt} oldExpiresAt=${result.oldExpiresAt}"
         )
     }
 

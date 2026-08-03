@@ -12,18 +12,20 @@ android {
         applicationId = "com.duskript.sunolocal"
         minSdk = 26
         targetSdk = 35
-        // v0.1.21-durable-media-controls: versionCode 22. Durable media
-        // controls batch: next/previous command availability flows from the
-        // shared ExoPlayer into the bottom player (buttons disabled, not just
-        // dimmed, when the queue cannot step); external controller events
-        // (play/pause, timeline changes, position discontinuity, available
-        // commands) sync back into LocalAudioPlayer StateFlows and persist the
-        // resume snapshot; Settings gains an in-app POST_NOTIFICATIONS request
-        // button (Android 13+) alongside the open-settings fallback. Media3
-        // default notification provider remains (channel default_channel_id);
-        // no custom provider added.
-        versionCode = 22
-        versionName = "0.1.21-durable-media-controls"
+        // v0.1.22-cookie-freshness: versionCode 23. Pure cookie freshness
+        // batch: CookieFreshness model (hasSession / expiresAtEpochSeconds /
+        // secondsUntilExpiry / isExpired / expiresWithin / status label) with
+        // injected-clock helpers; safe WebView cookie adoption via
+        // CookieAdoption + CookieRefreshResult so a stored __session is never
+        // overwritten by an older/equal (or not-provably-newer) WebView
+        // __session, while non-__session WebView cookies ride along on adopt;
+        // call sites (download worker pre-sync refresh, cookie refresh worker,
+        // library capture) log captured/saved/reason/expiry timestamps only —
+        // no cookie or JWT values. Settings status now shows the parsed expiry
+        // countdown next to "Configured — not tested". Automatic capture +
+        // validate login flow remains a later batch (v0.1.23-auth-refresh-flow).
+        versionCode = 23
+        versionName = "0.1.22-cookie-freshness"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

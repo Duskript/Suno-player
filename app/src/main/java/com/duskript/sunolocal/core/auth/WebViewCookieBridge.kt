@@ -40,9 +40,23 @@ object WebViewCookieBridge {
             .takeIf { it.contains("__session=") }
     }
 
-    fun refreshCookieStore(cookieStore: CookieStore): Boolean {
-        val cookieHeader = readCookieHeader() ?: return false
-        cookieStore.saveCookie(cookieHeader)
-        return true
+    /**
+     * Adopt the WebView cookie jar into [cookieStore] using the safe
+     * no-overwrite-older-cookie rule. The stored cookie is only replaced when
+     * the WebView `__session` is missing-or-newer (or the stored cookie is
+     * missing/already expired), never downgraded by an older/equal WebView
+     * session. Returns a [CookieRefreshResult] with no secret material.
+     */
+    fun refreshCookieStore(cookieStore: CookieStore): CookieRefreshResult {
+        val webViewHeader = readCookieHeader()
+        val result = CookieAdoption.decide(
+            webViewCookieHeader = webViewHeader,
+            storedCookieHeader = cookieStore.getCookie(),
+            nowEpochSeconds = System.currentTimeMillis() / 1000L
+        )
+        if (result.saved && webViewHeader != null) {
+            cookieStore.saveCookie(webViewHeader)
+        }
+        return result
     }
 }

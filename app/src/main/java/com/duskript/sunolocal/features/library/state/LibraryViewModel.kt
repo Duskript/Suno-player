@@ -142,14 +142,28 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         _errorMessage.value = null
     }
 
+    /**
+     * Capture the in-app WebView cookie jar into CookieStore using the safe
+     * no-overwrite-older-cookie rule. Returns true when a WebView __session was
+     * captured (whether or not it replaced the stored cookie); the status
+     * message distinguishes saved vs. refused-because-stored-is-newer.
+     */
     fun captureWebViewCookie(): Boolean {
-        val captured = WebViewCookieBridge.refreshCookieStore(cookieStore)
-        if (captured) {
-            refreshCookieStatus()
-            _connectionTestStatus.value = "Suno WebView cookie captured — tap Test Connection to verify."
-            _errorMessage.value = null
+        val result = WebViewCookieBridge.refreshCookieStore(cookieStore)
+        when {
+            result.saved -> {
+                refreshCookieStatus()
+                _connectionTestStatus.value = "Suno WebView cookie captured — tap Test Connection to verify."
+                _errorMessage.value = null
+            }
+            result.captured -> {
+                refreshCookieStatus()
+                _connectionTestStatus.value =
+                    "WebView cookie found but not saved (stored cookie is newer or expiry unknown) — keeping stored cookie."
+                _errorMessage.value = null
+            }
         }
-        return captured
+        return result.saved || result.captured
     }
 
     fun testConnection() {
@@ -233,14 +247,25 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    /**
+     * Refresh the Settings cookie status row. When the cookie is configured but
+     * not yet validated, append the parsed expiry countdown (or unknown-expiry
+     * note) so Settings shows more than "Configured" without any UI changes.
+     */
     private fun refreshCookieStatus(valid: Boolean? = null) {
         val configured = cookieStore.isConfigured()
         _cookieConfigured.value = configured
-        _cookieStatus.value = when {
+        val freshness = cookieStore.freshness()
+        val base = when {
             !configured -> "Missing"
             valid == true -> "Valid"
             valid == false -> "Expired or rejected"
             else -> "Configured — not tested"
+        }
+        _cookieStatus.value = if (configured && valid == null && freshness.hasSession) {
+            "$base (${freshness.statusLabel})"
+        } else {
+            base
         }
     }
 
