@@ -1,8 +1,11 @@
 package com.duskript.sunolocal.core.player
 
 import android.util.Log
+import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.duskript.sunolocal.R
+import com.duskript.sunolocal.SunoLocalApplication
 
 /**
  * Foreground-capable Media3 session service for background music playback.
@@ -15,12 +18,29 @@ class SunoPlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
-        SunoPlaybackEngine.mediaSession(this)
-        // v0.1.21 — no custom MediaNotification.Provider: Media3's default
-        // DefaultMediaNotificationProvider (channel default_channel_id) drives
-        // the notification/lockscreen controls from the session's available
-        // commands, so next/previous availability matches the player queue.
-        Log.i(TAG, "Using Media3 default media notification provider (channel default_channel_id)")
+        // v0.1.25 — root cause of missing notification/lockscreen controls:
+        // the Activity created a MediaSession, but the MediaSessionService never
+        // registered that session with addSession(), so Media3 had no service
+        // session linked to a foreground media notification. Bind the default
+        // provider to the app's real playback channel and explicitly add the
+        // shared session to this service before playback starts.
+        setMediaNotificationProvider(
+            DefaultMediaNotificationProvider(
+                this,
+                { DefaultMediaNotificationProvider.DEFAULT_NOTIFICATION_ID },
+                SunoLocalApplication.CHANNEL_PLAYBACK,
+                R.string.playback_notification_channel_name
+            )
+        )
+        val session = SunoPlaybackEngine.mediaSession(this)
+        if (!isSessionAdded(session)) {
+            addSession(session)
+        }
+        Log.i(
+            TAG,
+            "Registered MediaSession with service notification provider " +
+                "(channel=${SunoLocalApplication.CHANNEL_PLAYBACK})"
+        )
         // v0.1.20 — instrumentation: proves the service came up and whether the
         // shared engine already considers playback worth keeping alive.
         Log.i(

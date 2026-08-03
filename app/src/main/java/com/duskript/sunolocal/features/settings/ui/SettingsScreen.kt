@@ -66,6 +66,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.duskript.sunolocal.SunoLocalApplication
 import com.duskript.sunolocal.BuildConfig
 import com.duskript.sunolocal.core.player.PlaybackDiagnostics
 import com.duskript.sunolocal.domain.model.COOKIE_EXPIRED_GUIDANCE
@@ -735,12 +736,12 @@ private fun DownloadHealthSection(
 // v0.1.20 — Player Diagnostics + Media Controls (playback lifetime hardening).
 
 /**
- * Media3 1.5.1 DefaultMediaNotificationProvider posts its playback notification
- * on this channel id (name resource default_notification_channel_name); the app
- * does not override the provider, so this is the channel to inspect. Verified
- * against the media3-session 1.5.1 AAR (DefaultMediaNotificationProvider.class).
+ * v0.1.25 — playback notification/lockscreen controls use the app-created
+ * Media3 provider channel. Earlier diagnostics checked Media3's default
+ * `default_channel_id`, which made Settings report Missing even though the
+ * real app channel existed.
  */
-private const val MEDIA3_NOTIFICATION_CHANNEL_ID = "default_channel_id"
+private const val PLAYBACK_NOTIFICATION_CHANNEL_ID = SunoLocalApplication.CHANNEL_PLAYBACK
 
 /**
  * v0.1.20 — Playback lifetime diagnostics. A support surface for "why did it
@@ -876,8 +877,8 @@ private fun playbackChannelStatus(context: Context): String {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return "Unused on this Android version"
     val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
         ?: return "Unavailable"
-    val channel = manager.getNotificationChannel(MEDIA3_NOTIFICATION_CHANNEL_ID)
-        ?: return "Missing — created on first playback"
+    val channel = manager.getNotificationChannel(PLAYBACK_NOTIFICATION_CHANNEL_ID)
+        ?: return "Missing — playback service will create it on first playback"
     return when (channel.importance) {
         NotificationManager.IMPORTANCE_NONE -> "Disabled — outside-app controls may not appear"
         NotificationManager.IMPORTANCE_MIN -> "Enabled — minimal"
