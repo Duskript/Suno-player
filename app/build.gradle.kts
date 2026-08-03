@@ -12,19 +12,23 @@ android {
         applicationId = "com.duskript.sunolocal"
         minSdk = 26
         targetSdk = 35
-        // v0.1.23-auth-refresh-flow: versionCode 24. Capture + validate login
-        // flow and pre-sync auth guard: Settings Done now captures the WebView
-        // cookie and automatically validates it against playlist/me (no
-        // separate Test Connection tap); the download worker runs a pre-sync
-        // auth guard (safe WebView adoption → freshness check → live
-        // validation when missing/expired/near-expired) that skips auto-sync
-        // or fails manual sync with "login required" guidance without clearing
-        // library data; and a single safe WebView adoption + validation retry
-        // is attempted when a sync hits 401/403 mid-run (one retry max per
-        // worker run — never a loop). Log lines carry booleans/reasons/expiry
-        // timestamps only — never cookie or JWT values.
-        versionCode = 24
-        versionName = "0.1.23-auth-refresh-flow"
+        // v0.1.24-media-player-polish: versionCode 25. Batch E — queue/offline
+        // preference polish: playback prefers a verified local file URI
+        // (File.exists && length > 0, Uri.fromFile) over the raw path string or
+        // network audioUrl; stale/missing/zero-byte local paths fall back to
+        // audioUrl when one exists (logged honestly) or are excluded from the
+        // queue with a clear "Missing local audio for <title> — resync or
+        // re-download this playlist." message instead of a mysterious player
+        // error. Resume is never a silent no-op: it explains when the saved
+        // track is gone from the library, the saved queue has no playable
+        // tracks, or the saved track is unplayable (missing local file, no
+        // audioUrl), and the Resume card shows queue size / saved position /
+        // unavailable fallback. Batch B external-control sync (listener
+        // overrides, mediaId -> track fallback, hasNext/hasPrevious guards) is
+        // preserved. No library records or downloaded audio are deleted; no
+        // cookies/JWTs are logged.
+        versionCode = 25
+        versionName = "0.1.24-media-player-polish"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

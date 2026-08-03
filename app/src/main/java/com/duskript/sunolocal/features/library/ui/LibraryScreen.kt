@@ -620,11 +620,17 @@ fun LibraryScreen(
             // v0.1.15 — Resume where left off: shown only when a saved playback
             // snapshot exists and nothing is currently loaded in the player.
             if (lastPlaybackState != null && currentTrack == null) {
+                // v0.1.24 — Batch E: the card also shows the saved queue size and
+                // an honest fallback when the saved track is no longer in the
+                // library, so Resume is never a mystery.
+                val savedTrack = lastPlaybackState?.trackId?.let { trackId ->
+                    allTracks.firstOrNull { it.id == trackId }
+                }
                 ResumePlaybackCard(
-                    trackTitle = lastPlaybackState?.trackId?.let { trackId ->
-                        allTracks.firstOrNull { it.id == trackId }?.title
-                    },
+                    trackTitle = savedTrack?.title,
                     positionMs = lastPlaybackState?.positionMs ?: 0L,
+                    queueSize = lastPlaybackState?.queueIds?.takeIf { it.isNotEmpty() }?.size,
+                    savedTrackMissing = savedTrack == null,
                     onResume = viewModel::resumeLastPlayback
                 )
             }
@@ -943,6 +949,8 @@ private fun buildHealthLine(
 private fun ResumePlaybackCard(
     trackTitle: String?,
     positionMs: Long,
+    queueSize: Int?,
+    savedTrackMissing: Boolean,
     onResume: () -> Unit
 ) {
     Card(
@@ -968,8 +976,17 @@ private fun ResumePlaybackCard(
                     color = MaterialTheme.colorScheme.onPrimaryContainer
                 )
                 Text(
-                    text = trackTitle?.let { "\"$it\" at ${formatPosition(positionMs)}" }
-                        ?: "Continue the last queue",
+                    text = when {
+                        savedTrackMissing ->
+                            "Saved track no longer in library — resync to restore it"
+                        trackTitle != null -> buildString {
+                            append("\"$trackTitle\" at ${formatPosition(positionMs)}")
+                            if (queueSize != null) {
+                                append(" • $queueSize track${if (queueSize == 1) "" else "s"}")
+                            }
+                        }
+                        else -> "Continue the last queue"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                     maxLines = 1,

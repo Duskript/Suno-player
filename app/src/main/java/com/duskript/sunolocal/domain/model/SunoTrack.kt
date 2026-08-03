@@ -31,7 +31,12 @@ data class SunoTrack(
     /** Whether this track's audio file has been downloaded to local storage. */
     val isDownloaded: Boolean get() = localPath != null
 
-    /** Whether this track has all required metadata for playback (at minimum an id and title). */
+    /**
+     * Whether this track declares a playback source (localPath or audioUrl).
+     * UI enable states use this cheap check; the real runtime check that also
+     * verifies a local file exists and is non-empty lives in
+     * PlaybackSource.resolve (Batch E) and is used for queue building.
+     */
     val isPlayable: Boolean get() = localPath != null || audioUrl != null
 
     /** Compact metadata line for list/detail UI. */

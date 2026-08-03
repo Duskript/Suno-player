@@ -2,6 +2,7 @@ package com.duskript.sunolocal.core.player
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -211,11 +212,15 @@ class LocalAudioPlayer(context: Context) {
     }
 
     fun setQueue(tracks: List<SunoTrack>, startTrackId: String? = null) {
-        val playableTracks = tracks.filter { it.isPlayable }
+        // Batch E — filter with the real source check (local file exists &&
+        // length > 0, else audioUrl), not just SunoTrack.isPlayable, so stale
+        // localPath-only tracks are excluded with clear guidance instead of
+        // failing inside ExoPlayer with a mysterious URI error.
+        val (playableTracks, droppedTracks) = partitionBySource(tracks)
         _queue.value = playableTracks
         rebuildTrackMap(playableTracks)
 
-        val mediaItems = playableTracks.map { it.toMediaItem() }
+        val mediaItems = playableTracks.mapNotNull { it.toMediaItem() }
         exoPlayer.setMediaItems(mediaItems)
 
         val startIndex = if (startTrackId != null) {
@@ -231,17 +236,21 @@ class LocalAudioPlayer(context: Context) {
         } else {
             _currentTrack.value = null
         }
+        surfaceMissingLocalAudio(droppedTracks)
         syncStateFromPlayer()
         updatePlaybackPosition()
         persistPlaybackState()
     }
 
     fun addToQueue(track: SunoTrack) {
-        if (!track.isPlayable) return
+        if (!PlaybackSource.resolve(track).isPlayable) {
+            surfaceMissingLocalAudio(listOf(track))
+            return
+        }
         val updated = _queue.value + track
         _queue.value = updated
         trackMap[track.id] = track
-        exoPlayer.addMediaItem(track.toMediaItem())
+        exoPlayer.addMediaItem(track.toMediaItem() ?: return)
         if (exoPlayer.mediaItemCount == 1) {
             exoPlayer.prepare()
             _currentTrack.value = track
@@ -418,16 +427,29 @@ class LocalAudioPlayer(context: Context) {
         val currentItem = exoPlayer.currentMediaItem
         val trackName = _currentTrack.value?.title
             ?: currentItem?.mediaMetadata?.title?.toString()
+        val source = _currentTrack.value?.let { PlaybackSource.resolve(it) }
+
+        // Batch E — source-aware wording: a track whose local file vanished
+        // mid-queue (and has no audioUrl) gets clear resync guidance instead of
+        // a raw error code; a local-file playback failure is labelled as such.
         _playbackErrorMessage.value = buildString {
-            append("Playback error")
-            if (!trackName.isNullOrBlank()) append(" on \"$trackName\"")
-            append(": ")
-            // PlaybackException.errorCodeName is a plain String property here.
-            append(error.errorCodeName)
-            val detail = error.message
-            if (!detail.isNullOrBlank()) {
-                append(" — ")
-                append(detail)
+            when {
+                source is PlaybackSource.Unavailable && !trackName.isNullOrBlank() -> {
+                    append(PlaybackSource.missingLocalAudioMessage(trackName))
+                }
+                else -> {
+                    append("Playback error")
+                    if (!trackName.isNullOrBlank()) append(" on \"$trackName\"")
+                    if (source is PlaybackSource.Local) append(" (local file)")
+                    append(": ")
+                    // PlaybackException.errorCodeName is a plain String property here.
+                    append(error.errorCodeName)
+                    val detail = error.message
+                    if (!detail.isNullOrBlank()) {
+                        append(" — ")
+                        append(detail)
+                    }
+                }
             }
         }
 
@@ -527,21 +549,86 @@ class LocalAudioPlayer(context: Context) {
         tracks.forEach { track -> trackMap[track.id] = track }
     }
 
-    private fun SunoTrack.toMediaItem(): MediaItem = MediaItem.Builder()
-        .setMediaId(id)
-        .setUri(localPath ?: audioUrl)
-        .setTag(this)
-        .setMediaMetadata(
-            MediaMetadata.Builder()
-                .setTitle(title)
-                .setArtist(creatorName)
-                // Album helps lockscreen/notification grouping for a playlist
-                // context; "Suno Local" keeps it stable when creator is unknown.
-                .setAlbumTitle(creatorName ?: "Suno Local")
-                .setArtworkUri(imageUrl?.let { android.net.Uri.parse(it) })
-                .build()
+    private fun SunoTrack.toMediaItem(): MediaItem? {
+        // Batch E — prefer a verified local file URI (Uri.fromFile) over the
+        // raw path string; fall back to the network URL only when the local
+        // file is missing/zero-byte; null when neither source exists.
+        val uri = when (val source = PlaybackSource.resolve(this)) {
+            is PlaybackSource.Local -> Uri.fromFile(source.file)
+            is PlaybackSource.Streaming -> Uri.parse(source.url)
+            is PlaybackSource.Unavailable -> return null
+        }
+        return MediaItem.Builder()
+            .setMediaId(id)
+            .setUri(uri)
+            .setTag(this)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(title)
+                    .setArtist(creatorName)
+                    // Album helps lockscreen/notification grouping for a playlist
+                    // context; "Suno Local" keeps it stable when creator is unknown.
+                    .setAlbumTitle(creatorName ?: "Suno Local")
+                    .setArtworkUri(imageUrl?.let { android.net.Uri.parse(it) })
+                    .build()
+            )
+            .build()
+    }
+
+    /**
+     * Batch E — splits tracks by real playback-source availability. Tracks with
+     * a stale local path but a valid audioUrl are kept (streaming fallback) and
+     * logged so the fallback is never secret; tracks with neither are dropped
+     * for [surfaceMissingLocalAudio] to explain.
+     */
+    private fun partitionBySource(tracks: List<SunoTrack>): Pair<List<SunoTrack>, List<SunoTrack>> {
+        val playable = mutableListOf<SunoTrack>()
+        val dropped = mutableListOf<SunoTrack>()
+        for (track in tracks) {
+            when (val source = PlaybackSource.resolve(track)) {
+                is PlaybackSource.Local -> playable.add(track)
+                is PlaybackSource.Streaming -> {
+                    val stalePath = track.localPath?.trim()
+                        ?.takeIf { it.isNotBlank() && it != "null" }
+                    if (stalePath != null) {
+                        // Honest diagnostics: local file is gone, streaming in use.
+                        Log.i(
+                            TAG,
+                            "Local file missing for \"${track.title}\" ($stalePath) — falling back to network audioUrl"
+                        )
+                    }
+                    playable.add(track)
+                }
+                is PlaybackSource.Unavailable -> dropped.add(track)
+            }
+        }
+        return playable to dropped
+    }
+
+    /**
+     * Batch E — surfaces a clear user-facing message when tracks were excluded
+     * because they have no usable audio source (stale/missing local path and no
+     * audioUrl). A later clean queue build clears a previous missing-file
+     * message so the dialog does not linger.
+     */
+    private fun surfaceMissingLocalAudio(droppedTracks: List<SunoTrack>) {
+        val missing = droppedTracks.firstOrNull()
+        if (missing == null) {
+            if (_playbackErrorMessage.value?.startsWith(PlaybackSource.MISSING_LOCAL_AUDIO_PREFIX) == true) {
+                _playbackErrorMessage.value = null
+            }
+            return
+        }
+        val extra = droppedTracks.size - 1
+        _playbackErrorMessage.value = buildString {
+            append(PlaybackSource.missingLocalAudioMessage(missing.title))
+            if (extra > 0) append(" (+$extra more)")
+        }
+        Log.w(
+            TAG,
+            "Excluded ${droppedTracks.size} track(s) from queue: missing local audio with no audioUrl fallback"
         )
-        .build()
+    }
 
     private fun ensurePlaybackServiceRunning() {
         // User taps Play while the app is foreground, so a normal startService()

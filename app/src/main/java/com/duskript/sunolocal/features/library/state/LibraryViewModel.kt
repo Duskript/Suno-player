@@ -16,8 +16,10 @@ import com.duskript.sunolocal.core.network.SunoApiClient
 import com.duskript.sunolocal.core.network.SunoApiException
 import com.duskript.sunolocal.core.player.LocalAudioPlayer
 import com.duskript.sunolocal.core.player.PlaybackDiagnostics
+import com.duskript.sunolocal.core.player.PlaybackSource
 import com.duskript.sunolocal.core.player.PlaybackState
 import com.duskript.sunolocal.core.player.PlaybackStateStore
+import com.duskript.sunolocal.core.player.ResumePlaybackStatus
 import com.duskript.sunolocal.core.storage.FavoritesStore
 import com.duskript.sunolocal.core.storage.ImportResult
 import com.duskript.sunolocal.core.storage.LibraryBackup
@@ -402,24 +404,46 @@ class LibraryViewModel(application: Application) : AndroidViewModel(application)
     /**
      * Rebuilds the queue from the saved [PlaybackState]: resolves queue track
      * ids against the current library, starts at the saved track, seeks near
-     * the saved position, then plays. Safe no-op when tracks are missing or the
-     * queue is empty; never auto-plays without the user tapping Resume.
+     * the saved position, then plays. Batch E: never a silent no-op — when the
+     * saved track/queue cannot be rebuilt, a visible [errorMessage] explains
+     * why (track missing from library / queue has no playable tracks / saved
+     * track unplayable because its local file is missing and there is no
+     * audioUrl). Playback never starts without the user tapping Resume.
      */
     fun resumeLastPlayback() {
-        val state = _lastPlaybackState.value ?: return
+        val state = _lastPlaybackState.value
+        if (state == null) {
+            _errorMessage.value = "Nothing to resume — no saved playback session."
+            return
+        }
         val allTracks = _playlists.value.asSequence()
             .flatMap { it.tracks.asSequence() }
             .distinctBy { it.id }
             .toList()
-        val byId = allTracks.associateBy { it.id }
-        val target = byId[state.trackId] ?: return
-        val queueIds = state.queueIds.takeIf { it.isNotEmpty() && state.trackId in it }
-            ?: listOf(state.trackId)
-        val queue = queueIds.mapNotNull { byId[it] }.filter { it.isPlayable }
-        if (queue.isEmpty()) return
-        audioPlayer.setQueue(queue, startTrackId = target.id)
-        audioPlayer.seekTo(state.positionMs.coerceAtLeast(0L))
-        audioPlayer.playPause()
+        when (val status = ResumePlaybackStatus.evaluate(state, allTracks)) {
+            is ResumePlaybackStatus.Ready -> {
+                audioPlayer.setQueue(status.queue, startTrackId = status.startTrackId)
+                audioPlayer.seekTo(state.positionMs.coerceAtLeast(0L))
+                audioPlayer.playPause()
+            }
+            is ResumePlaybackStatus.SavedTrackUnplayable -> {
+                // The saved track's local file is gone and it has no audioUrl,
+                // but the rest of the queue is still playable — resume from the
+                // first playable track and explain what happened.
+                _errorMessage.value = PlaybackSource.missingLocalAudioMessage(status.trackTitle)
+                audioPlayer.setQueue(status.queue, startTrackId = status.startTrackId)
+                audioPlayer.seekTo(state.positionMs.coerceAtLeast(0L))
+                audioPlayer.playPause()
+            }
+            is ResumePlaybackStatus.SavedTrackMissing -> {
+                _errorMessage.value =
+                    "The saved track is no longer in your library — resync your playlists to restore it."
+            }
+            is ResumePlaybackStatus.NoPlayableTracks -> {
+                _errorMessage.value =
+                    "Saved queue has no playable tracks — local audio is missing and there is no network fallback."
+            }
+        }
     }
 
     fun selectPlaylist(playlistId: String) {
