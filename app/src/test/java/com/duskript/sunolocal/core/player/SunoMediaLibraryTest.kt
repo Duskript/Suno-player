@@ -228,6 +228,74 @@ class SunoMediaLibraryTest {
     }
 
     @Test
+    fun `playbackQueueFor selected track uses containing playlist queue and start index`() {
+        val playlists = listOf(
+            playlist(
+                id = "pl-a",
+                title = "Playlist A",
+                tracks = listOf(
+                    track(id = "shared", title = "Shared A", audioUrl = "https://example.com/shared-a.mp3")
+                )
+            ),
+            playlist(
+                id = "pl-b",
+                title = "Playlist B",
+                tracks = listOf(
+                    track(id = "b-1", title = "First B", audioUrl = "https://example.com/b-1.mp3"),
+                    track(id = "target", title = "Target B", audioUrl = "https://example.com/target.mp3"),
+                    track(id = "b-2", title = "Last B", audioUrl = "https://example.com/b-2.mp3")
+                )
+            )
+        )
+
+        val queue = SunoMediaLibrary.playbackQueueFor("track:target", playlists)
+
+        assertNotNull(queue)
+        assertEquals(3, queue?.mediaItems?.size)
+        assertEquals(1, queue?.startIndex)
+        assertEquals(0L, queue?.startPositionMs)
+        assertEquals(listOf("track:b-1", "track:target", "track:b-2"), queue?.mediaItems?.map { it.mediaId })
+        assertEquals("Playlist B", queue?.mediaItems?.get(1)?.mediaMetadata?.albumTitle?.toString())
+    }
+
+    @Test
+    fun `playbackQueueFor excludes unplayable tracks and indexes selected playable track`() {
+        val playlists = listOf(
+            playlist(
+                id = "pl-b",
+                title = "Playlist B",
+                tracks = listOf(
+                    track(id = "dead-before", audioUrl = null, localPath = null),
+                    track(id = "target", audioUrl = "https://example.com/target.mp3"),
+                    track(id = "dead-after", audioUrl = null, localPath = null),
+                    track(id = "after", audioUrl = "https://example.com/after.mp3")
+                )
+            )
+        )
+
+        val queue = SunoMediaLibrary.playbackQueueFor("track:target", playlists)
+
+        assertNotNull(queue)
+        assertEquals(listOf("track:target", "track:after"), queue?.mediaItems?.map { it.mediaId })
+        assertEquals(0, queue?.startIndex)
+    }
+
+    @Test
+    fun `playbackQueueFor returns null when selected track is unplayable`() {
+        val playlists = listOf(
+            playlist(
+                id = "pl-b",
+                tracks = listOf(
+                    track(id = "dead", audioUrl = null, localPath = null),
+                    track(id = "after", audioUrl = "https://example.com/after.mp3")
+                )
+            )
+        )
+
+        assertNull(SunoMediaLibrary.playbackQueueFor("track:dead", playlists))
+    }
+
+    @Test
     fun `childrenFor returns empty for unknown parents and known-parent check works`() {
         val playlists = listOf(playlist(id = "pl-1"))
         assertTrue(SunoMediaLibrary.childrenFor("playlist:unknown", playlists).isEmpty())

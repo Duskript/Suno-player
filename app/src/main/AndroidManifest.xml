@@ -69,7 +69,7 @@
                     Android Auto app) able to find this service;
                     androidx.media3.session.MediaSessionService is retained so
                     SunoMediaButtonReceiver (Media3 MediaButtonReceiver) keeps
-                    resolving this service for headset/lockscreen/widget keys.
+                    resolving this service for headset/lockscreen keys.
                 -->
                 <action android:name="androidx.media3.session.MediaLibraryService" />
                 <action android:name="android.media.browse.MediaBrowserService" />
@@ -95,10 +95,9 @@
         </receiver>
 
         <!--
-            v0.1.26 — home screen playback widget. Classic AppWidgetProvider +
-            RemoteViews (no Glance). Widget buttons broadcast ACTION_MEDIA_BUTTON
-            key events to SunoMediaButtonReceiver above, so they ride the same
-            MediaSessionService path as headset/lockscreen keys — no parallel
+            v0.1.28 — home screen playback widget. Classic AppWidgetProvider +
+            RemoteViews (no Glance). Widget buttons use explicit app-private
+            provider actions against the shared ExoPlayer — no parallel
             playback stack and no second media button receiver. exported=true
             because the launcher/system delivers the APPWIDGET_UPDATE broadcast.
         -->
@@ -125,6 +124,25 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="android.media.AUDIO_BECOMING_NOISY" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+            v0.1.28 PART 2 — best-effort auto-resume when Android delivers a
+            wired-headset, Bluetooth, or car audio route-connect broadcast.
+            Modern Android may suppress implicit delivery while the app process
+            is stopped or background-limited, so this cannot force resume for
+            every route connection. Disconnect pause remains handled separately
+            by AudioNoisyReceiver above.
+        -->
+        <receiver
+            android:name=".core.player.AudioRouteResumeReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.HEADSET_PLUG" />
+                <action android:name="android.bluetooth.device.action.ACL_CONNECTED" />
+                <action android:name="android.bluetooth.a2dp.profile.action.CONNECTION_STATE_CHANGED" />
+                <action android:name="android.bluetooth.headset.profile.action.CONNECTION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
 

@@ -12,6 +12,14 @@ android {
         applicationId = "com.duskript.sunolocal"
         minSdk = 26
         targetSdk = 35
+        // v0.1.28-control-surface-fixes: versionCode 29. Widget controls now
+        // use explicit app-private provider actions instead of ACTION_MEDIA_BUTTON
+        // broadcasts, Android Auto track selection expands a tapped track into
+        // its containing playlist queue with unplayable tracks excluded,
+        // Android 13+ notification permission is prompted automatically, and
+        // car/Bluetooth/wired route-connect broadcasts trigger best-effort
+        // auto-resume from the existing queue or saved playback state.
+        //
         // v0.1.27-android-auto-connection: versionCode 28. Android Auto
         // phone-app media support: SunoPlaybackService is now a Media3
         // MediaLibraryService exposing a driver-safe browse tree (Suno Local →
@@ -37,8 +45,8 @@ android {
         // shared MediaSession with addSession(), binds Media3's default
         // notification provider to the app playback channel (suno_local_playback),
         // and Settings checks that real channel instead of the old default id.
-        versionCode = 28
-        versionName = "0.1.27-android-auto-connection"
+        versionCode = 29
+        versionName = "0.1.28-control-surface-fixes"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

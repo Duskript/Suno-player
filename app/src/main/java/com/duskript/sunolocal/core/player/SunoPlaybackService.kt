@@ -207,6 +207,38 @@ class SunoPlaybackService : MediaLibraryService() {
             }
             return Futures.immediateFuture(resolved)
         }
+
+        override fun onSetMediaItems(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: List<MediaItem>,
+            startIndex: Int,
+            startPositionMs: Long
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val requested = mediaItems.singleOrNull()
+            val isSingleUriLessTrack = requested != null &&
+                requested.localConfiguration?.uri == null &&
+                requested.mediaId.startsWith("track:")
+            if (isSingleUriLessTrack) {
+                val queue = SunoMediaLibrary.playbackQueueFor(requested.mediaId, loadPlaylists())
+                if (queue != null) {
+                    return Futures.immediateFuture(
+                        MediaSession.MediaItemsWithStartPosition(
+                            queue.mediaItems,
+                            queue.startIndex,
+                            queue.startPositionMs
+                        )
+                    )
+                }
+            }
+            return Futures.immediateFuture(
+                MediaSession.MediaItemsWithStartPosition(
+                    mediaItems,
+                    startIndex,
+                    startPositionMs
+                )
+            )
+        }
     }
 
     private companion object {

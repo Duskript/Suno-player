@@ -5,26 +5,21 @@ import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.view.KeyEvent
 import android.widget.RemoteViews
 import com.duskript.sunolocal.MainActivity
 import com.duskript.sunolocal.R
-import com.duskript.sunolocal.core.player.SunoMediaButtonReceiver
 import com.duskript.sunolocal.core.player.SunoPlaybackEngine
 import com.duskript.sunolocal.domain.model.SunoTrack
 
 /**
  * SunoPlaybackWidgetUpdater — renders the home screen playback widget from a
  * pure [SunoPlaybackWidgetState] snapshot using classic AppWidgetProvider +
- * RemoteViews (v0.1.26, no Glance).
+ * RemoteViews (v0.1.28, no Glance).
  *
- * Control routing: the previous/play-pause/next buttons never touch a parallel
- * playback stack. They broadcast `ACTION_MEDIA_BUTTON` `KeyEvent`s to the
- * single manifest-registered [SunoMediaButtonReceiver], which Media3 routes
- * into the shared MediaSessionService path — exactly the route wired headset
- * and lockscreen keys use. Only ACTION_DOWN is sent; Media3's media-button
- * handling acts on ACTION_DOWN (the same event wired headsets deliver).
- * Tapping the widget body opens [MainActivity].
+ * Control routing: the previous/play-pause/next buttons send explicit
+ * app-private broadcasts to [SunoPlaybackWidgetProvider], which acts directly
+ * on the existing process-wide player. Tapping the widget body opens
+ * [MainActivity].
  *
  * Update cadence: [updateAll] skips a render when the incoming state equals
  * the last rendered one, so [com.duskript.sunolocal.core.player.LocalAudioPlayer]
@@ -154,7 +149,7 @@ object SunoPlaybackWidgetUpdater {
             }
         )
         // RemoteViews cannot reliably disable a view; dim instead. Taps on an
-        // unavailable command are harmless no-ops in the media-button path.
+        // unavailable command are harmless no-ops in the provider action path.
         views.setFloat(
             R.id.widget_previous,
             "setAlpha",
@@ -169,15 +164,27 @@ object SunoPlaybackWidgetUpdater {
         views.setOnClickPendingIntent(R.id.widget_root, openAppPendingIntent(context))
         views.setOnClickPendingIntent(
             R.id.widget_previous,
-            mediaButtonPendingIntent(context, KeyEvent.KEYCODE_MEDIA_PREVIOUS, REQUEST_CODE_PREVIOUS)
+            widgetActionPendingIntent(
+                context,
+                SunoPlaybackWidgetProvider.ACTION_PREVIOUS,
+                REQUEST_CODE_PREVIOUS
+            )
         )
         views.setOnClickPendingIntent(
             R.id.widget_play_pause,
-            mediaButtonPendingIntent(context, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, REQUEST_CODE_PLAY_PAUSE)
+            widgetActionPendingIntent(
+                context,
+                SunoPlaybackWidgetProvider.ACTION_PLAY_PAUSE,
+                REQUEST_CODE_PLAY_PAUSE
+            )
         )
         views.setOnClickPendingIntent(
             R.id.widget_next,
-            mediaButtonPendingIntent(context, KeyEvent.KEYCODE_MEDIA_NEXT, REQUEST_CODE_NEXT)
+            widgetActionPendingIntent(
+                context,
+                SunoPlaybackWidgetProvider.ACTION_NEXT,
+                REQUEST_CODE_NEXT
+            )
         )
 
         manager.updateAppWidget(widgetIds, views)
@@ -193,23 +200,17 @@ object SunoPlaybackWidgetUpdater {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-    /**
-     * Broadcast PendingIntent that delivers a media-button key event to the
-     * existing [SunoMediaButtonReceiver] — the same ACTION_MEDIA_BUTTON path
-     * wired headsets and lockscreen controls use. Unique request codes keep
-     * the three actions distinct; FLAG_UPDATE_CURRENT keeps them fresh.
-     */
-    private fun mediaButtonPendingIntent(
+    /** Explicit provider PendingIntent for widget-only playback commands. */
+    private fun widgetActionPendingIntent(
         context: Context,
-        keyCode: Int,
+        action: String,
         requestCode: Int
     ): PendingIntent =
         PendingIntent.getBroadcast(
             context,
             requestCode,
-            Intent(Intent.ACTION_MEDIA_BUTTON).apply {
-                component = ComponentName(context, SunoMediaButtonReceiver::class.java)
-                putExtra(Intent.EXTRA_KEY_EVENT, KeyEvent(KeyEvent.ACTION_DOWN, keyCode))
+            Intent(action).apply {
+                component = ComponentName(context, SunoPlaybackWidgetProvider::class.java)
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )

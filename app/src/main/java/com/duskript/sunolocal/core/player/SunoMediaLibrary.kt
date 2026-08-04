@@ -48,6 +48,12 @@ object SunoMediaLibrary {
     /** Stable media id for a playable track. */
     fun trackMediaId(trackId: String): String = "$TRACK_ID_PREFIX$trackId"
 
+    data class PlaybackQueue(
+        val mediaItems: List<MediaItem>,
+        val startIndex: Int,
+        val startPositionMs: Long = 0L
+    )
+
     /** Extracts the playlist id from a playlist browse id, or null. */
     fun playlistIdFromBrowseId(browseId: String): String? =
         browseId.takeIf { it.startsWith(PLAYLIST_ID_PREFIX) }?.removePrefix(PLAYLIST_ID_PREFIX)
@@ -163,6 +169,28 @@ object SunoMediaLibrary {
             }
             else -> null
         }
+    }
+
+    /**
+     * Builds the playable queue for a selected track id using the first saved
+     * playlist that contains that track. Unplayable tracks are excluded, and a
+     * selected unplayable/excluded track returns null instead of inventing a
+     * queue.
+     */
+    fun playbackQueueFor(
+        mediaId: String,
+        playlists: List<SunoPlaylistJson>
+    ): PlaybackQueue? {
+        if (!mediaId.startsWith(TRACK_ID_PREFIX)) return null
+        val trackId = mediaId.removePrefix(TRACK_ID_PREFIX)
+        for (playlist in playlists) {
+            if (playlist.tracks.none { it.id == trackId }) continue
+            val mediaItems = playlist.tracks.mapNotNull { trackItem(it, playlist.title) }
+            val startIndex = mediaItems.indexOfFirst { it.mediaId == mediaId }
+            if (startIndex < 0) return null
+            return PlaybackQueue(mediaItems = mediaItems, startIndex = startIndex)
+        }
+        return null
     }
 
     /**
